@@ -135,10 +135,11 @@ def do_login(accounts,variant,settings,otp):
     from django.core.urlresolvers import reverse
     from django.http import QueryDict
     from django_otp.plugins.otp_email.models import EmailDevice
+    import re
     member1 = accounts['member1']
     noop = DummyContext()
     client = Client(secure=True)
-    device = 'django_otp.plugins.otp_email.models.EmailDevice/1'
+    device = 'django_otp.plugins.otp_email.models.EmailDevice/\d+'
     if variant=='inactive':
         member1.is_active = False
         member1.save(update_fields=['is_active'])
@@ -182,7 +183,8 @@ def do_login(accounts,variant,settings,otp):
                 assert SESSION_KEY not in client.session
                 check_response(response)
                 assert 'form' in response.context
-                assert device in response.content.decode('utf8')
+                device = re.search(device, response.content)
+                assert device
             else:
                 check_response(response,nexturl)
                 assert SESSION_KEY in client.session
@@ -190,9 +192,11 @@ def do_login(accounts,variant,settings,otp):
         if not otp or not expect is noop: return
     else:
         assert SESSION_KEY in client.session
+        device = re.search(device, response.content)
+        assert device
         data = {}
 
-    data['otp_device'] = device
+    data['otp_device'] = device.group()
     data['otp_challenge'] = "Get challenge"
     response = client.post(url,data,follow=True)
     check_response(response)
