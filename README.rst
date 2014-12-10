@@ -1,3 +1,11 @@
+.. image:: https://travis-ci.org/edemocracy/ekklesia.png?branch=master
+    :target: https://travis-ci.org/edemocracy/ekklesia
+    :alt: Build status
+
+.. image:: https://coveralls.io/repos/edemocracy/ekklesia/badge.png
+    :target: https://coveralls.io/r/edemocracy/ekklesia
+    :alt: Coverage
+
 Ekklesia
 ========
 
@@ -16,25 +24,17 @@ Further components will be added as soon as their are stable.
 
 Some client applications compatible with the Ekklesia ID server are:
 
-- .. Portal: https://github.com/basisentscheid/portal
-- .. Anonymous voting: https://github.com/pfefffer/vvvote
+- `Portal <https://github.com/basisentscheid/portal>`_
+- `Anonymous voting <https://github.com/pfefffer/vvvote>`_
 
 Disclaimer
 ~~~~~~~~~~
 
 This software comes with ABSOLUTELY NO WARRANTY. USE THIS SOFTWARE AT YOUR OWN RISK.
 
-.. image:: https://travis-ci.org/edemocracy/ekklesia.png?branch=master 
-    :target: https://travis-ci.org/edemocracy/ekklesia
-    :alt: Build status
-
-.. image:: https://coveralls.io/repos/edemocracy/ekklesia/badge.png
-    :target: https://coveralls.io/r/edemocracy/ekklesia
-    :alt: Coverage
-
 Authors
 ~~~~~~~
-Thomas "Entropy"    entropy@heterarchy.net
+Thomas "Entropy"    entropy at heterarchy.net
 
 Installation
 ~~~~~~~~~~~~
