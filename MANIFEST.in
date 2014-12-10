@@ -1,0 +1,6 @@
+include LICENSE
+include README.rst
+recursive-include static *
+recursive-include templates *
+recursive-include locale *
+recursive-include docs *

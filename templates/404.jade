@@ -1,0 +1,9 @@
+extends base
+-load i18n
+
+block header_title
+    -trans '404 - Page not found'
+
+block content
+    h1: -trans 'Error'
+    p: -trans 'The page you requested could not be found.'

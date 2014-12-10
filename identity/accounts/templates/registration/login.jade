@@ -1,0 +1,12 @@
+extends form
+-load url from future
+
+block content-outside
+    p
+        | If you have forgotten your user name or password, you can 
+        a(href="{% url 'accounts:password_reset' %}") reset your password
+        |  with your email address.
+    p
+        | If you don't have an account, you can 
+        a(href="{% url 'accounts:signup' %}") sign up
+        |  for one.

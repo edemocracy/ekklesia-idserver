@@ -1,0 +1,21 @@
+extends base
+-load i18n
+-load url from future
+
+block header_title
+    -trans 'Logged out'
+
+block navigation
+
+block content
+    h1 You've been logged out.
+    p
+        | Thanks for stopping by; when you come back, don't forget to 
+        a(href="{% url 'accounts:login' %}") 
+            -trans 'log in'
+        |  again.
+    p
+        | You will be redirected to the main page in {{ redirect_delay }} seconds.
+        | Please click 
+        a(href='{{ next|default:"/"}}') here
+        |  if it doesn't work.

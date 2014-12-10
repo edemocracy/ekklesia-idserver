@@ -1,0 +1,7 @@
+//- {{ form.as_p }}
+for hidden in form.hidden_fields
+    {{ hidden }}
+for field in form.visible_fields
+    .fieldWrapper
+        {{ field.errors }}
+        {{ field.label_tag }} {{ field }}

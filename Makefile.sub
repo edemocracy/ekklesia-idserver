@@ -1,0 +1,168 @@
+PYTHON:=python
+SOCKETDIR:=/var/run/nginx
+SOCKNAME=$(PROJ)
+PORT:=8090
+VIRTENV=
+include ../Makefile.common
+-include ../Makefile.config
+-include Makefile.config
+
+#-----------------------------------------------------------------------------------
+# define $( ) as space
+$() $() := $() $()
+
+MANAGE=$(PYTHON) manage.py
+CFGMOD=$(PROJ).settings
+OPT=$(if $(CFG),--configuration=$(CFG),)
+DJANGOCFG=$(if $(CFG),--env DJANGO_CONFIGURATION=$(CFG),)
+
+BACKUP=backup.json
+ifeq ($(wildcard $(BACKUP)),)
+    INIT:=init.json
+else
+    INIT:=$(BACKUP)
+endif
+
+EXCL = contenttypes.contenttype sessions.session auth.permission admin.logentry
+EOPT=$(patsubst %, -e %,$(EXCL))
+
+# apps in dependencies first order
+APPS := accounts
+EXTRA_APPS :=
+# for current migration
+APP := accounts
+
+EXTRA_CLEAN := local.db static.prod
+
+FCGI_SOCKET = $(SOCKETDIR)/fcgi-$(SOCKNAME).socket
+GUNICORN_OPT = --env DJANGO_SETTINGS_MODULE=$(CFGMOD) $(PROJ).wsgi:application --debug $(DJANGOCFG)
+GUNICORN_SOCKET = $(SOCKETDIR)/http-$(SOCKNAME).socket
+UWSGI_OPT = --py-autoreload --py-tracebacker --vacuum --module=$(PROJ).wsgi:application \
+	--env DJANGO_SETTINGS_MODULE=$(CFGMOD) $(DJANGOCFG) $(if $(VIRTENV),-H$(VIRTENV),)
+UWSGI_SOCKET = $(SOCKETDIR)/wsgi-$(SOCKNAME).socket
+
+$(PROJ)/settings.py:
+	test -f $@ || cp $(PROJ)/settings-example.py $@
+
+$(SASS_OUT): $(SASS_SRC)
+	@compass compile -c ../config.rb
+
+#-----------------------------------------------------------------------------------
+		
+TARGETS=all backup clean css dbsh dump dumps html init msg run runcgi runu runw sh static tar test upd valid
+.PHONY: $(TARGETS)
+	
+all:
+	@echo "make ($(subst $( ),|,$(TARGETS)))"
+
+backup:
+	$(MANAGE) dumpdata $(OPT) --indent=2 --natural $(EOPT) > $(BACKUP) 
+# | grep -v '"\(date_joined\|last_login\)"'
+
+clean: basicclean
+	#@for app in $(APPS); do rm -rf $$app/migrations; done
+
+distclean: clean
+	@rm -vf $(PROJ)/settings.py
+
+celery:
+	celery -A $(PROJ) worker -l info
+
+css: $(SASS_OUT)
+	@$(MAKE) -C .. $@
+
+dump:
+	$(MANAGE) dumpdata $(OPT) --indent=2 $(EOPT)
+
+dumps:
+	@mkdir -p misc && $(MANAGE) dumpscript $(OPT) | grep -v "auth_permission\|admin_log" | sed "s/, tzinfo=<UTC>//" > misc/init.py
+
+#CLEAR_APPS= auth contenttypes admin sessions $(EXTRA_APPS) $(SOUTH_APPS) $(APPS)
+CLEAR_APPS= $(EXTRA_APPS) $(APPS) admin sessions auth contenttypes django
+
+drop: $(PROJ)/settings.py
+#	$(MANAGE) reset_db $(OPT) --noinput
+	$(MANAGE) sqlflush $(OPT) | grep -v SELECT | sed -e"s/DELETE FROM \(.*\);/DROP TABLE \1;/" -e"s/TRUNCATE \(.*\);/DROP TABLE \1 CASCADE;/" | $(MANAGE) dbshell $(OPT)
+	-echo "DROP TABLE django_migrations;" | $(MANAGE) dbshell $(OPT)
+#	for app in $(CLEAR_APPS); do $(MANAGE) migrate $(OPT) $$app zero; done
+#	for app in $(APPS) $(SOUTH_APPS); do rm -rf $$app/migrations; done
+#	$(MANAGE) sqlflush $(OPT) $(SOUTH_APPS) | sed "s/DROP TABLE \(.*\);/DROP TABLE \1 CASCADE;/" | $(MANAGE) dbshell $(OPT)
+#	@rm -f local.db
+
+init: valid $(PROJ)/settings.py
+	-$(MANAGE) flush $(OPT) --noinput --no-initial-data
+	for app in $(APPS); do $(MANAGE) makemigrations $(OPT) $$app; done
+	$(MANAGE) migrate $(OPT)
+
+load:
+	$(MANAGE) loaddata $(OPT) -i $(INIT)
+
+valid:
+	$(MANAGE) validate $(OPT)
+
+migratenew: valid
+	$(MANAGE) makemigrations $(OPT) $(APP)
+migrateempty: valid
+	$(MANAGE) makemigrations $(OPT) $(APP) --empty
+migratedry: valid
+	$(MANAGE) makemigrations $(OPT) --dry-run $(APP)
+migrate: valid
+	$(MANAGE) migrate $(OPT) $(APP)
+migratelist:
+	$(MANAGE) migrate $(OPT) -l $(APP)
+
+html: $(JADE_OUT)
+	@$(MAKE) -C .. $@
+
+msg:
+	$(MANAGE) makemessages $(OPT) -a
+	$(MANAGE) compilemessages $(OPT)
+
+run: css html
+	$(MANAGE) runserver $(OPT) $(PORT)
+
+runcgi: css html
+	$(MANAGE) runfcgi $(OPT) umask=117 "socket=$(FCGI_SOCKET)" daemonize=False
+
+runcgid: css html
+	-pkill -f "$(FCGI_SOCKET)"
+	$(MANAGE) runfcgi $(OPT) umask=117 "socket=$(FCGI_SOCKET) daemonize=True
+	chgrp www-data "$(FCGI_SOCKET)"
+
+runcgip: css html
+	$(MANAGE) runfcgi $(OPT) host=localhost port=$(PORT) daemonize=False
+
+runu: static
+	-pkill -f "$(GUNICORN_SOCKET)"
+	gunicorn --umask=117 -g www-data -b "unix:$(GUNICORN_SOCKET)" $(GUNICORN_OPT)
+	chgrp www-data "$(GUNICORN_SOCKET)"
+
+runup: static
+	gunicorn -b localhost:$(PORT) $(GUNICORN_OPT)
+
+runw: static
+	uwsgi $(UWSGI_OPT) --umask=117 --gid www-data -s "$(UWSGI_SOCKET)"
+
+runwd: static
+	-pkill -f "$(UWSGI_SOCKET)"
+	uwsgi $(UWSGI_OPT) --daemonize log --umask=117 --gid www-data -s "$(UWSGI_SOCKET)" 
+	chgrp www-data "$(UWSGI_SOCKET)"
+
+runwp: static
+	uwsgi $(UWSGI_OPT) -s localhost:$(PORT)
+
+dbshell:
+	@$(MANAGE) dbshell $(OPT) 
+
+shell:
+	@$(MANAGE) shell $(OPT) 
+
+static: css html
+	@$(MANAGE) collectstatic $(OPT) --noinput -l
+
+retest: $(PROJ)/settings.py
+	py.test $(if $(CFG),--dc $(CFG),) --reuse-db $(TESTOPT)
+
+test: $(PROJ)/settings.py
+	py.test $(if $(CFG),--dc $(CFG),) $(TESTOPT)
+

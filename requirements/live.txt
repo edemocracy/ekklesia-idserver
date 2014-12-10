@@ -1,0 +1,12 @@
+-r common.txt
+pyopenssl
+ndg-httpsclient
+pyasn1
+py-bcrypt
+scrypt
+alembic
+psycopg2
+pika>=0.9.14
+uwsgi
+pylibmc
+django-scrypt

@@ -1,0 +1,22 @@
+extends base
+-load i18n
+-load url from future
+
+block append content
+    p: a(href="{% url 'accounts:profile_edit' %}") edit profile
+
+    p Avatar: 
+        if avatar
+            img(src="{{ avatar.url }}")
+        else
+            | no image
+    p Public identification (verified): 
+        {{ verified_public_id }}
+    if public_id
+        p Public identification (unverified): 
+            {{ public_id }}
+    p Public profile (verified): 
+        {{ verified_profile }}
+    if profile
+        p Public profile (unverified): 
+            {{ profile }}

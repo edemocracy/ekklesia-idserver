@@ -1,0 +1,51 @@
+extends base
+-load i18n
+-load url from future
+
+block header_title
+    -trans Authorize
+block navigation
+
+block content
+    .block-center
+        if not error
+            form.authorizationForm(method="post")
+                h3.block-center-heading
+                    -trans "Authorize"
+                    |  {{ application.name }}?
+                -csrf_token
+                for hidden in form.hidden_fields
+                    | {{ hidden }}
+                if form.errors
+                    p.errornote
+                        if form.errors.items|length == 1
+                            -trans "Please correct the error below."
+                        else
+                            -trans "Please correct the errors below."
+                if form.non_field_errors
+                    for error in form.non_field_errors
+                        p.errornote: {{ error }}
+                p: -trans "Application requires following permissions"
+                ul
+                    for scope in scopes_descriptions
+                         li {{ scope }}
+                if login
+                    .form-row
+                      {{ form.username.errors }}
+                      label.required(for="id_username"): {{ form.username.label }}:
+                      | {{ form.username }}
+                    .form-row
+                      {{ form.password.errors }}
+                      label.required(for="id_password"): -trans 'Password:'
+                      | {{ form.password }}
+                    -url 'password_reset' as password_reset_url
+                    if password_reset_url
+                        .password-reset-link
+                            a(href="{{ password_reset_url }}"): -trans 'Forgotten your password or username?'
+                .control-group
+                  .controls
+                    input.btn.btn-large.btn-primary(type='submit', name='allow', value='Authorize')
+                    input.btn.btn-large(type='submit', value='Cancel')
+        else
+          h2 Error: {{ error.error }}
+          p {{ error.description }}

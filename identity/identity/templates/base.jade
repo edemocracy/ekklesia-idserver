@@ -1,0 +1,24 @@
+extends base_top
+-load staticfiles
+-load i18n
+-load url from future
+
+block navigation
+    #nav-main
+        span
+            block login
+                if user.is_authenticated
+                    -trans 'Logged in as'
+                    |  
+                    {{ user.username }}
+                    a(href="{% url 'accounts:logout' %}")
+                        -trans 'log out'|capfirst
+
+block flash
+    if auth_form.non_field_errors or user_form.non_field_errors
+        .flash.error
+            | {{ auth_form.non_field_errors }}
+            | {{ user_form.non_field_errors }}
+    if notice
+        .flash.notice
+            | {{ notice }}

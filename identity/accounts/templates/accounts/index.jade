@@ -1,0 +1,32 @@
+extends base
+-load i18n
+-load url from future
+
+block content
+    h1 Hello!
+    p: -trans 'Welcome to the Ekklesia ID server!'
+    hr
+
+    if user.is_staff
+        p: a(href="{% url 'admin:index' %}"): -trans 'administration'|capfirst
+    p: a(href="{% url 'accounts:username' %}") change username
+    p: a(href="{% url 'accounts:email' %}") change email
+    p: a(href="{% url 'accounts:password' %}") change password
+    p: a(href="{% url 'accounts:profile' %}") show profile
+    p: a(href="{% url 'accounts:profile_edit' %}") edit profile
+
+    p Username: 
+        {{ username }}
+    p Public key registered: 
+        {{ key_registered|yesno }}
+    p Status: 
+         {{ status }}
+    p Verified: 
+        {{ status|yesno }}
+    p Eligible: 
+        {{ eligible|yesno }}
+    p Two-factor authenticiation: 
+        {{ two_factor_auth|yesno }}
+    p Notify on login: 
+         {{ notify_login|yesno }}
+

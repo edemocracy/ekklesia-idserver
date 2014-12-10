@@ -1,0 +1,50 @@
+-load i18n
+-load staticfiles
+-load url from future
+doctype
+//if lt IE 7
+    <html class="no-js lt-ie9 lt-ie8 lt-ie7">
+//if IE 7
+    <html class="no-js lt-ie9 lt-ie8">
+//if IE 8
+    <html class="no-js lt-ie9">
+//[if gt IE 8]><!
+html.no-js
+    //<![endif]
+    head
+        meta(charset='utf-8')
+        meta(http-equiv='X-UA-Compatible', content='IE=edge')
+        title: block header_title
+            {{ title }}
+        meta(name='description', content='')
+        meta(name='viewport', content='width=device-width, initial-scale=1')
+        link(rel='stylesheet', href='{% static "css/styles.css" %}')
+        link(rel='stylesheet', href='{% static "css/main.css" %}')
+        script(src='{% static "js/vendor/modernizr-2.6.2.min.js" %}')
+        block extra_head
+    body
+        //if lt IE 7
+            p.browsehappy: -blocktrans with link="http://browsehappy.com/"
+                | You are using an <strong>outdated</strong> browser. Please <a
+                | href="{{link}}">upgrade your browser</a> to improve your experience.
+        header
+            block header
+                span
+                    h1 Ekklesia
+                    h3 eDemocracy
+        block navigation
+        #main-wrapper
+            block flash
+        #wrapper-inside
+            block content
+                h1: {{ title }}
+        br.clear
+        block content-outside
+        footer#main-footer
+            block footer
+
+        script(src='{% static "js/vendor/jquery-2.1.1.min.js" %}')
+        script(src='{% static "js/bootstrap.js" %}')
+        script(src='{% static "js/plugins.js" %}')
+        script(src='{% static "js/main.js" %}')
+        block scripts

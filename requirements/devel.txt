@@ -1,0 +1,8 @@
+-r common.txt
+webtest
+markdown
+django-rest-swagger
+coverage
+pytest>=2.6.2
+pytest-django>=2.6.2
+pytest-pythonpath

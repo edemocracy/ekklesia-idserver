@@ -1,0 +1,9 @@
+extends base
+-load i18n
+
+block header_title
+    -trans '500 - Internal server error'
+
+block content
+    h1: -trans 'Error'
+    p: -trans 'There was an internal error when processing your request. The administrators have been notified.'
