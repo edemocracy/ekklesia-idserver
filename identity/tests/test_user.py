@@ -183,7 +183,7 @@ def do_login(accounts,variant,settings,otp):
                 assert SESSION_KEY not in client.session
                 check_response(response)
                 assert 'form' in response.context
-                device = re.search(device, response.content)
+                device = re.search(device, response.content.decode("utf8"))
                 assert device
             else:
                 check_response(response,nexturl)
@@ -192,7 +192,7 @@ def do_login(accounts,variant,settings,otp):
         if not otp or not expect is noop: return
     else:
         assert SESSION_KEY in client.session
-        device = re.search(device, response.content)
+        device = re.search(device, response.content.decode("utf8"))
         assert device
         data = {}
 
