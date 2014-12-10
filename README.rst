@@ -1,9 +1,9 @@
 Ekklesia
 ========
 
-Ekkelisa is a framework for large-scale deliberative, direct, electronic democracy.
+Ekklesia is a framework for building large-scale, deliberative, direct and electronic democracies.
 
-It's focus are privacy, security and deliberation.
+Its focus are privacy, security and deliberation.
 
 This project is in an early state and not yet fully implemented.
 So far is the main audience are developers.
@@ -13,6 +13,11 @@ For other licenses please contact the authors.
 
 This repository contains only (mostly) fully implemented and/or tested components.
 Further components will be added as soon as their are stable.
+
+Some client applications compatible with the Ekklesia ID server are:
+
+- .. Portal: https://github.com/basisentscheid/portal
+- .. Anonymous voting: https://github.com/pfefffer/vvvote
 
 Disclaimer
 ~~~~~~~~~~
