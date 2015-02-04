@@ -32,7 +32,7 @@ def test_registerkey(request,accounts,mails,bilateral,defect):
     from idapi.models import Message, PublicKey
     from idapi.mails import gnupg_init, get_mails, send_mails, update_keyrings, process_register
     import email.mime.text
-    from kryptomime import create_mail, protect_mail
+    from kryptomime import create_mail
     from kryptomime.pgp import find_gnupg_key
     import tempfile
     home = tempfile.mkdtemp()

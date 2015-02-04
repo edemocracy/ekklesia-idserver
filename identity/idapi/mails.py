@@ -254,7 +254,7 @@ def process_register(debug_gpg=None):
 #-------------------------------------------------------------------------------------------------
 
 def encode_mail(msg, sender):
-    from kryptomime import create_mail
+    from kryptomime.mail import create_mail, create_mime, check_charset
     from time import time as epochtime
     import email.utils
     from email.mime.text import MIMEText
@@ -266,43 +266,40 @@ def encode_mail(msg, sender):
     time = data.get('date',epochtime())
     parts = data.get('parts',None)
     if parts: # multi-part
-        from email.mime.multipart import MIMEMultipart
-        mail = MIMEMultipart()
-        mail['From'] = sender
-        mail['To'] = receiver
-        mail['Subject'] = subject
-        mail['Date'] = email.utils.formatdate(time,localtime=True)
-        for i,a in enumerate(parts):
-            submsg = MIMEText(a['content'])
-            submsg.set_type(a.get('content-type','text/plain'))
-            submsg['content-transfer-encoding'] = a.get('content-encoding','8bit')
-            f = a.get('filename','')
-            if f:
-                submsg.set_filename(f)
-                msg.add_header('Content-Disposition', 'attachment', filename=f)
-            elif i:
-                msg.add_header('Content-Disposition', 'attachment')
-            params = a.get('content-params',{})
+        mail = None
+        for i,part in enumerate(parts):
+            ctype = part.get('content-type','text/plain').lower().split('/')
+            encoding = part.get('content-encoding')
+            content = part['content']
+            content, charset = check_charset(content,part.get('content-charset'))
+            if i:
+                msg = create_mime(content,*ctype,charset=charset,encoding=encoding)
+                filename= part.get('filename')
+                filename = dict(filename=filename) if filename else {}
+                msg.add_header('Content-Disposition', 'attachment', **filename)
+            else:
+                assert ctype[0]=='text'
+                msg = create_mail(sender,receiver,subject,content,time=time,subtype=ctype[1],
+                    charset=charset,encoding=encoding)
+            params = part.get('content-params',{})
             if params:
                 assert type(params) == dict
                 for k,v in iteritems(params):
-                    submsg.set_param(k,v)
-            contentchar = a.get('content-charset','UTF-8')
-            submsg.set_charset(contentchar)
-            mail.attach(submsg)
+                    msg.set_param(k,v)
+            if i: mail.attach(msg)
+            else: mail = msg
     else: # single part
-        contenttype = data.get('content-type','text/plain')
-        contentenc = data.get('content-encoding','8bit')
-        headers = {'Content-Type':contenttype,'Content-Transfer-Encoding':contentenc}
-        body = data['content']
-        mail = create_mail(sender,receiver,subject,body,time=time,headers=headers)
+        ctype = data.get('content-type','text/plain').lower().split('/')
+        assert ctype[0]=='text'
+        encoding = data.get('content-encoding')
+        body, charset = check_charset(data['content'],data.get('content-charset'))
+        mail = create_mail(sender,receiver,subject,body,time=time,subtype=ctype[1],
+                charset=charset,encoding=encoding)
         params = data.get('content-params',{})
         if params:
             assert type(params) == dict
             for k,v in iteritems(params):
                 mail.set_param(k,v)
-        contentchar = data.get('content-charset','UTF-8')
-        mail.set_charset(contentchar)
     #print mail
     return mail
 
@@ -328,7 +325,7 @@ def create_mail(input,app,user):
         if type(subject)==str: subject = Template(subject)
         if type(body)==str: body = Template(body)
     else:
-        subject, body = Template('{subject}'), Template('{body}')
+        subject, body = Template(u'{subject}'), Template(u'{body}')
     sign, encrypt  = input.get('sign',False),input.get('encrypt',False)
     if sign and not 'key' in opts:
         return None
@@ -409,7 +406,7 @@ def save_mail(user,app,identity,template=None,tmplargs={},attachments=[],sign=Tr
     return msg
 
 def send_id_mails(smtp,identity,opts,crypto,isopen):
-    from kryptomime import GPGMIME
+    from kryptomime.pgp import GPGMIME
     from ekklesia.mail import SMTPOutput
     from django.utils import timezone
     from idapi.models import Message
@@ -444,7 +441,7 @@ def send_id_mails(smtp,identity,opts,crypto,isopen):
     return isopen
 
 def send_mails(joint=True,connections=None,debug=None,debug_gpg=None):
-    from kryptomime import GPGMIME
+    from kryptomime.pgp import GPGMIME
     from ekklesia.mail import smtp_init
     from six import iteritems
     configs = get_all_configs('smtp',joint)
@@ -540,7 +537,7 @@ def decode_mail(msg, idemail, crypto, gpg, skey):
     return newmsg
 
 def get_id_mails(server,identity,opts,gpg,isopen,debug=None,keep=False):
-    from kryptomime import GPGMIME
+    from kryptomime.pgp import GPGMIME
     idemail = opts['email']
     if not gpg: crypto, skey = None, None
     else:

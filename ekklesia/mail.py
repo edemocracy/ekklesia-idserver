@@ -239,7 +239,7 @@ class IMAPSource(MessageSource):
         return int(response[0].split()[2].strip(').,]'))
 
     def __iter__(self):
-        from kryptomime.mail import as_protected
+        from kryptomime.mail import protect_mail
         filter = "(OR UNSEEN FLAGGED)" if self.filter else 'ALL'
         status, response = self.imap.uid('search', None, filter)
         if not status=='OK': return
@@ -256,7 +256,7 @@ class IMAPSource(MessageSource):
             status, response = self.imap.uid('store',e_id, '+FLAGS', r'(\Flagged)')
             status, response = self.imap.uid('fetch',e_id, '(RFC822)')
             raw = response[0][1]
-            yield as_protected(raw), flags
+            yield protect_mail(raw), flags
             if self.keep:
                 status,response = self.imap.uid('store',e_id, '-FLAGS', r'(\Flagged)')
             else:
@@ -316,7 +316,7 @@ class VirtualIMAP(MessageSource):
 
     def __iter__(self):
         from mailbox import Maildir
-        from kryptomime.mail import as_protected
+        from kryptomime.mail import protect_mail
         haveflags = isinstance(self.mailbox,Maildir)
         for key, mail in list(self.mailbox.items()):
             if haveflags:
@@ -327,7 +327,7 @@ class VirtualIMAP(MessageSource):
                     mail.add_flag('F')
             else: flags = ''
             if not self.readonly: self.mailbox[key] = mail
-            yield as_protected(mail),flags
+            yield protect_mail(mail),flags
             if self.readonly: continue
             if self.keep:
                 if haveflags:
@@ -376,15 +376,15 @@ class VirtualMailServer(MessageOutput):
 
     def send(self,msg):
         import email
+        from email.header import decode_header
         import smtplib
-        tos = msg.get_all('to', [])
-        ccs = msg.get_all('cc', [])
+        tos = msg.get_all('to', []) + msg.get_all('cc', [])
+        recipients = [email.utils.parseaddr(decode_header(to)[0][0])[1] for to in tos]
         errors = {}
-        for to in email.utils.getaddresses(tos + ccs):
-            rcv = email.utils.formataddr(to)
-            if rcv in self.accounts:
-                self.accounts[rcv].add(msg)
+        for to in recipients:
+            if to in self.accounts:
+                self.accounts[to].add(msg)
             else:
-                errors[rcv] = 'user does not exist'
+                errors[to] = 'user does not exist'
         if errors: raise smtplib.SMTPRecipientsRefused(errors)
         return True

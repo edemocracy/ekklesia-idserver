@@ -47,7 +47,7 @@ class KeysLogin(SSLBasicAuthentication):
 
 def api_crypto(api):
     from idapi.mails import gnupg_import_init
-    from kryptomime import GPGMIME
+    from kryptomime.pgp import GPGMIME
     gpg = gnupg_import_init(verbose=False)
     sender = getattr(settings, 'API_GNUPG_KEY')
     receiver = getattr(settings, 'API_BACKEND_KEYS', {}).get(api,False)
@@ -86,7 +86,6 @@ def get_members(crypto=True):
 def update_members(members,departments,crypto=True):
     from ekklesia.data import DataTable
     from idapi.mails import gnupg_import_init
-    from kryptomime import GPGMIME
     from accounts.models import Account, NestedGroup, Invitation
     import six
     if crypto:
@@ -213,7 +212,6 @@ class MembersView(APIView):
 def get_invitations(crypto=True):
     from ekklesia.data import DataTable
     from idapi.mails import gnupg_init
-    from kryptomime import GPGMIME
     from accounts.models import Invitation
     if crypto:
         gpg, verify, decrypt, sign, encrypt = api_crypto('invitations')
@@ -235,7 +233,6 @@ def get_invitations(crypto=True):
 def update_invitations(invitations,crypto=True):
     from ekklesia.data import DataTable
     from idapi.mails import gnupg_import_init
-    from kryptomime import GPGMIME
     from accounts.models import Account, Invitation
     import six
     delete_implicit = getattr(settings, 'INVITATIONS_DELETE_IMPLICT', False)

@@ -611,7 +611,7 @@ def test_mail(mails,bilateral):
     assert not len(imapsend) and not len(imaprecv)
     attachment = email.mime.text.MIMEText('some\nattachment')
     msg = create_mail(sender,receiver,'subject','body\nmessage',attach=[attachment])
-    #msg = protect_mail(msg,ending='\r\n')
+    #msg = protect_mail(msg,linesep='\r\n')
 
     enc,_ = id1.encrypt(msg,sign=True,inline=False)
     assert enc and id2.analyze(enc) == (True,None)
@@ -625,7 +625,7 @@ def test_mail(mails,bilateral):
     assert not len(imapsend) and not len(imaprecv)
 
     msg = create_mail(receiver,sender,'subject','body\nmessage',attach=[attachment])
-    msg = protect_mail(msg,ending='\r\n')
+    msg = protect_mail(msg,linesep='\r\n')
     sgn,_ = id2.sign(msg,inline=True,verify=True)
     assert sgn and id1.analyze(sgn) == (False,True)
 
@@ -638,7 +638,7 @@ def test_mail(mails,bilateral):
     assert len(imapsend)==1 and not len(imaprecv)
 
     for mail, flags in imapsend:
-        mail = protect_mail(mail,ending='\r\n')
+        mail = protect_mail(mail,linesep='\r\n')
         dec, verified, result = id1.decrypt(mail,strict=True)
         assert dec and verified and result
         assert not result['encrypted'] and result['signed'] and result['fingerprints']==[key2]
@@ -664,7 +664,7 @@ def test_send(request,accounts,tokens,mails,bilateral,client,defect):
 
     user.publickeys.create(active=True,keytype=PublicKey.PGP,trust=PublicKey.TRUSTED)
 
-    data = {'identity':'portal','content':{'subject':'hallo1','body':'foo'}}
+    data = {'identity':'portal','content':{'subject':'hallo1','body':'foö'}}
     response, out = api(client,'user/mails/','post',data,token=token)
     assert response.status_code == 200
     data = {'identity':'portal','content':{'subject':'hallo2','body':'foo'},'sign':True}
@@ -680,8 +680,7 @@ def test_send(request,accounts,tokens,mails,bilateral,client,defect):
         return
     assert not len(imapsend) and len(imaprecv)==3
     for mail, flags in imaprecv:
-        mail, verified, result = id2.decrypt(mail,strict=False)
-        #print mail, result
+        mail, verified, result = id2.decrypt(mail)
         assert mail and result
         subj = mail.get('subject')
         if subj=='hallo1': assert not result['encrypted'] and not result['signed']
@@ -707,6 +706,7 @@ def test_receive(request,accounts,tokens,mails,bilateral,client,defect):
     livemail = request.config.getoption('livemail')
     if livemail: server = mails
     else: server, imapsend, imaprecv = mails
+    if not livemail: assert not len(imapsend) and not len(imaprecv)
 
     user.publickeys.create(active=True,keytype=PublicKey.PGP,trust=PublicKey.TRUSTED)
 
@@ -714,7 +714,7 @@ def test_receive(request,accounts,tokens,mails,bilateral,client,defect):
     key2 = find_gnupg_key(bilateral['gpg2'],receiver)
     attachment = email.mime.text.MIMEText('some\nattachment')
     msg = create_mail(receiver,sender,'subject','body\nmessage',attach=[attachment])
-    msg = protect_mail(msg,ending='\r\n')
+    msg = protect_mail(msg,linesep='\r\n')
 
     assert server.send(msg)
     if not livemail: assert len(imapsend)==1 and not len(imaprecv)
@@ -734,15 +734,15 @@ def test_receive(request,accounts,tokens,mails,bilateral,client,defect):
         mtype = id1.analyze(mail)
         if mtype != (False,False):
             if mtype == (False,True):
-                verified, result = id1.verify(mail,strict=False)
+                verified, result = id1.verify(mail)
                 mail = id1.strip_signature(mail)[0]
-                mail = protect_mail(mail,ending='\r\n')
+                mail = protect_mail(mail,linesep='\r\n')
             else: #if mtype == (True,None):
                 mail, verified, result = id1.decrypt(mail)
             assert mail and verified and result
             assert result['signed'] and result['fingerprints']==[key2]
             assert result['encrypted']==(mtype != (False,True))
-        else: mail = protect_mail(mail,ending='\r\n')
+        else: mail = protect_mail(mail,linesep='\r\n')
         compare_mail(msg,mail)
     assert not len(imapsend) and not len(imaprecv)
     """
@@ -758,9 +758,7 @@ def test_receive(request,accounts,tokens,mails,bilateral,client,defect):
         parts = out['parts']
         assert out['subject']=='subject' and len(parts)==2
         signed, encrypted = out['signed'],out['encrypted']
-        print (signed, encrypted)
-        if not six.PY2 and not encrypted: contents = ['body\nmessage','some\nattachment']
-        else: contents = ['body\r\nmessage','some\r\nattachment']
+        contents = ['body\r\nmessage','some\r\nattachment']
         assert parts[0]=={'content': contents[0], 'content-charset': 'us-ascii', 'content-type': 'text/plain', 'content-encoding': '7bit'}
         assert parts[1]=={'content': contents[1], 'content-charset': 'us-ascii', 'content-type': 'text/plain', 'content-encoding': '7bit'}
         todo.remove((signed,encrypted))

@@ -100,7 +100,7 @@ def json_decrypt(data, gpg):
     else: # encrypt, opt. sign
         edata = data.get('encrypted_data',None)
         if not edata: return None, True, False, None
-        result = gpg.decrypt_str(edata, default_key=True)
+        result = gpg.decrypt_str(edata)
         if result and (not signed or result.valid): data = str(result)
         else: data = None
     import json
@@ -263,9 +263,9 @@ class DataTable(object):
                 import re
                 if encrypt:
                     if PY3 and isinstance(f,StringIO):
-                        result = self.gpg.decrypt_str(f.getvalue(),default_key=True)
+                        result = self.gpg.decrypt_str(f.getvalue())
                     else:
-                        result = self.gpg.decrypt_file(f,default_key=True)
+                        result = self.gpg.decrypt_file(f)
                     assert result.ok, "decryption failed"
                     if sign: assert result.valid and result.fingerprint==fingerprint, 'invalid signature'
                     f = StringIO(str(result))

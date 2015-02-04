@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Django settings for Ekklesia project.
 
 """
@@ -201,6 +202,10 @@ def defaults(production=False,admin=False,site=0):
 			'DEFAULT_PERMISSION_CLASSES': (
 				'rest_framework.permissions.IsAdminUser',
 				'rest_framework.permissions.IsAuthenticated',
+			),
+			'DEFAULT_RENDERER_CLASSES': (
+				'rest_framework.renderers.JSONRenderer',
+				'rest_framework.renderers.BrowsableAPIRenderer',
 			),
 			'PAGINATE_BY': 10,
 		}
@@ -533,7 +538,7 @@ class Testing(defaults(production=True,admin=False)):
 		'register_confirm': ('Registration',
 	"""Please confirm your key either by clicking on {url}={code}
 	or enter the following code at {url}: {code}
-	Thank you"""),
+	Thank you. Ümlaut"""),
 	}
 
 	EMAIL_IDS = {

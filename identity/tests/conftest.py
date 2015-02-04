@@ -133,7 +133,7 @@ def api(client,url,method='get',data=None,app=None,user=None,token=None,multipar
     out = json.loads(resp) if response['content-type']=='application/json' and resp else None
     return response, out
 
-@fixture(scope='session')
+@fixture(scope='function')
 def mails(request):
     if request.config.getoption('livemail'):
         from django.conf import settings

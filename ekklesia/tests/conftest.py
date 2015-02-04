@@ -34,8 +34,7 @@ def pytest_addoption(parser):
 @fixture(scope='module')
 def keys(request):
     import os, gnupg
-    from kryptomime import GPGMIME
-    from kryptomime.pgp import find_gnupg_key
+    from kryptomime.pgp import GPGMIME, find_gnupg_key
     from ekklesia.data import tmpfname
     #generate = verbose = False
     generate = request.config.getoption('generate',False)
@@ -84,23 +83,23 @@ def keys(request):
 
 @fixture(scope='module')
 def gpgsender(keys):
-    from kryptomime import GPGMIME
+    from kryptomime.pgp import GPGMIME
     return GPGMIME(keys['gpg1'],default_key=(sender,passphrase))
 
 @fixture(scope='module')
 def gpgreceiver(keys):
-    from kryptomime import GPGMIME
+    from kryptomime.pgp import GPGMIME
     return GPGMIME(keys['gpg2'],default_key=receiver)
 
 @fixture(scope='module')
 def gpgthird(keys):
-    from kryptomime import GPGMIME
+    from kryptomime.pgp import GPGMIME
     return GPGMIME(keys['gpg3'],default_key=third)
 
 @fixture(scope='module')
 def bilateral(request,keys):
     import gnupg
-    from kryptomime import GPGMIME
+    from kryptomime.pgp import GPGMIME
     from ekklesia.data import tmpfname
     keyrings = [tmpfname() for i in range(2)]
     gpg1 = gnupg.GPG(keyring=keyrings[0],secring=keys['secrings'][0])
@@ -120,7 +119,7 @@ def bilateral(request,keys):
 @fixture(scope='module')
 def trilateral(request,keys):
     import gnupg
-    from kryptomime import GPGMIME
+    from kryptomime.pgp import GPGMIME
     from ekklesia.data import tmpfname
     keyrings = [tmpfname() for i in range(3)]
     gpg1 = gnupg.GPG(keyring=keyrings[0],secring=keys['secrings'][0])
