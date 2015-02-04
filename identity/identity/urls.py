@@ -39,7 +39,7 @@ if SITE_ID != 2: # main, not for API-only
     ]
 # API
 urlpatterns += [
-    url(r'^api/v1/', include('idapi.urls', namespace="api1")),
+    url(r'^api/v1/', include('idapi.urls', namespace="v1")),
 ]
 if getattr(settings, 'DEBUG', False):
     urlpatterns += [

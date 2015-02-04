@@ -118,7 +118,7 @@ class UserListAdmin(admin.ModelAdmin):
 
     def export_link(self, obj):
         from django.core.urlresolvers import reverse
-        return "<a href='%s'>Export UUIDs</a>" % reverse('api1:export_list', args=(obj.ulid,))
+        return "<a href='%s'>Export UUIDs</a>" % reverse('v1:export_list', args=(obj.ulid,))
     export_link.allow_tags = True 
 
 def user_email(obj):

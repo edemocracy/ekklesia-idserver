@@ -117,7 +117,7 @@ def share_template(apps,client=None):
         response, out = api(client,'app/shares/test/1/','delete',app=portal)
         assert response.status_code == 204 and out is None
         response, out = api(client,'app/shares/test/1/',app=portal)
-        assert response.status_code == 404 and out == dict(detail='Not found')
+        assert response.status_code == 404 and out == dict(detail='Not found.')
     else:
         obj1.delete(client=portal)
     assert share.objs.count()==1

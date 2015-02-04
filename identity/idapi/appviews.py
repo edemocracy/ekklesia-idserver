@@ -119,7 +119,7 @@ class ShareViewSet(ViewSet):
             if share.ref_counting and share.share_changes.filter(no=obj.no, 
                 client=request.auth, action=ShareChange.SEEN).exists():
                 continue # already deleted for client
-            uri = reverse('api1:share-detail',kwargs={'share':share.name,'pk':obj.no})
+            uri = reverse('v1:share-detail',kwargs={'share':share.name,'pk':obj.no})
             uri = request.build_absolute_uri(uri)
             size = len(str(obj.data))
             objs.append({'no':obj.no,'uri':uri,'size':size,
@@ -134,7 +134,7 @@ class ShareViewSet(ViewSet):
         #print 'create',share, request.__dict__, format
         obj = ShareObject(share=request.share,data=request.DATA,last_client=request.auth)
         obj.save()
-        location = request.build_absolute_uri(reverse('api1:share-detail',kwargs={'share':share,'pk':obj.no}))
+        location = request.build_absolute_uri(reverse('v1:share-detail',kwargs={'share':share,'pk':obj.no}))
         headers = {'Location':location,'ETag':quote_etag(str(obj.version)),
             'Last-modified':http_date(timegm(obj.last_modified.utctimetuple()))}
         return Response(obj.data,headers=headers,status=status.HTTP_201_CREATED)
@@ -240,7 +240,7 @@ class ShareChangesView(APIView):
                     deleted.add(change.no)
         #print created,modified,deleted
         def geturis(objs):
-            return [request.build_absolute_uri(reverse('api1:share-detail',kwargs={'share':share,'pk':no})) for no in objs]
+            return [request.build_absolute_uri(reverse('v1:share-detail',kwargs={'share':share,'pk':no})) for no in objs]
         data = {'share':share,'first':first,'last':stop,'current':request.share.version,
             'created':geturis(created),'modified':geturis(modified),'deleted':geturis(deleted)}
         return Response(data)

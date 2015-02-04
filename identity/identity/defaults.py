@@ -207,6 +207,7 @@ def defaults(production=False,admin=False,site=0):
 				'rest_framework.renderers.JSONRenderer',
 				'rest_framework.renderers.BrowsableAPIRenderer',
 			),
+			'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.NamespaceVersioning',
 			'PAGINATE_BY': 10,
 		}
 
@@ -492,6 +493,7 @@ def defaults(production=False,admin=False,site=0):
 
 class Testing(defaults(production=True,admin=False)):
 	#SSL_CLIENT_AUTH_DEBUG = 'local'
+	LANGUAGE_CODE='en'
 
 	PASSWORD_HASHERS = ('django.contrib.auth.hashers.MD5PasswordHasher',)
 	SECURE_REQUIRED_PATHS = ()

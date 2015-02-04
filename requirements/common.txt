@@ -24,9 +24,8 @@ django-endless-pagination
 django-cors-headers
 django-crispy-forms
 django-oauth-toolkit
-https://github.com/edemocracy/django-rest-framework/archive/apirev.zip
-#djangorestframework
-#git+https://github.com/tomchristie/django-rest-framework pull/1495
+https://github.com/tomchristie/django-rest-framework/archive/version-3.1.zip
+#djangorestframework>=3.1
 #djangorestframework-digestauth
 django-recaptcha
 django_admin_bootstrapped

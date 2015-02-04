@@ -25,12 +25,12 @@ User = get_user_model()
 class UserOrEmailAuthBackend(ModelBackend):
     """
     Username/Email Authentication Backend
-    
+
     Allows a user to sign in using an email/password pair rather than
     a username/password pair.
     """
     supports_anonymous_user=False
-    
+
     def authenticate(self, username=None, password=None):
         #If username is an email address, then try to pull it up
         from django.core.validators import email_re

@@ -85,9 +85,7 @@ urlpatterns = [
 
     # LIST CLIENTS
     url(r'^app/lists/$', appviews.ListsView.as_view(),name='lists'),
-
-    url(r'^', include(router.urls)),
-]
+]+router.urls
 
 if getattr(settings, 'HAVE_ADMIN', False):
     from idapi import admin
