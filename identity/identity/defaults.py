@@ -424,8 +424,6 @@ def defaults(production=False,admin=False,site=0):
 		REGISTRATION_OPEN = True
 		REGISTRATION_CLOSED_URL = '/' # url if registration is closed
 
-		INVITATIONS_DELETE_IMPLICT = False # whether to delete members whose uuid was not uploaded
-
 		# home of id keyrings or tuple of keyrings file of id public/secret keys
 		# default $HOME/.gnupg
 		EMAIL_GPG_IMPORT_HOME = None
@@ -481,14 +479,18 @@ def defaults(production=False,admin=False,site=0):
 
 		NOTIFY_AUTH=False # False=disabled,'optional'=user specific setting, True=always
 
-		BROKER_URL = 'amqp://'
+		BROKER_URL = ''
 		BROKER_USE_SSL= False
+		BROKER_TRANSPORT_OPTIONS = {}
 		CELERY_RESULT_BACKEND = 'amqp://'
 		CELERY_TASK_SERIALIZER = 'json'
 		CELERY_RESULT_SERIALIZER = 'json'
 		CELERY_ACCEPT_CONTENT=['json']
 		CELERY_TIMEZONE = 'Europe/Berlin'
 		CELERY_ENABLE_UTC = True
+
+		BACKEND_EXCHANGE='id-backend'
+		BACKEND_QUEUE='id-backend'
 	return Defaults
 
 class Testing(defaults(production=True,admin=False)):

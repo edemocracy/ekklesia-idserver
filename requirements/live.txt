@@ -6,7 +6,7 @@ py-bcrypt
 scrypt
 alembic
 psycopg2
-pika>=0.9.14
+pyamqp
 uwsgi
 pylibmc
 django-scrypt

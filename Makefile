@@ -5,6 +5,7 @@ include Makefile.common
 SUBDIRS := identity # portal voting
 TARGETS=all clean css html install tar test
 STARGETS=backup init msg static upd valid
+TEST_DEPS=
 .PHONY: $(TARGETS) $(STARGETS)
 
 all:
@@ -21,18 +22,16 @@ css: $(SASS_OUT)
 html: $(JADE_OUT)
 
 install-css:
-	gem install --user bootstrap-sass compass-h5bp
-	compass install bootstrap
+	gem install --no-ri --no-rdoc --user bootstrap-sass compass-h5bp
+	compass install --force bootstrap
 	compass install compass-h5bp
 
 install:
 	pip install -r requirements/devel.txt
 	@for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
 
-test: html
-	coverage run -m py.test
-	coverage report
-	@for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
+test: test-local
+	@for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@ TEST_OPT=$(TEST_OPT); done
 
 tar:
 	@cd .. && $(TAR) czf ekklesia.tgz --exclude=.git "$(CURDIR)"

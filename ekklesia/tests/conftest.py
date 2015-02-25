@@ -33,14 +33,17 @@ def pytest_addoption(parser):
 
 @fixture(scope='module')
 def keys(request):
-    import os, gnupg
+    import os, gnupg, logging
     from kryptomime.pgp import GPGMIME, find_gnupg_key
     from ekklesia.data import tmpfname
     #generate = verbose = False
     generate = request.config.getoption('generate',False)
     verbose = request.config.getoption('gpglog',False)
     if verbose: gnupg._logger.create_logger(10)
-    if generate:
+    else:
+        log = logging.getLogger('gnupg')
+        log.setLevel(logging.CRITICAL)
+    if generate: # pragma: no cover
         keyrings = [tmpfname() for i in range(3)]
         secrings = [tmpfname() for i in range(3)]
     else:
@@ -54,13 +57,13 @@ def keys(request):
             if os.path.exists(fname): continue
             keygen = True
             break
-    if keygen:
+    if keygen: # pragma: no cover
         for fname in keyrings+secrings:
             if os.path.exists(fname): os.unlink(fname)
     gpg1 = gnupg.GPG(keyring=keyrings[0],secring=secrings[0],verbose=verbose)
     gpg2 = gnupg.GPG(keyring=keyrings[1],secring=secrings[1],verbose=verbose)
     gpg3 = gnupg.GPG(keyring=keyrings[2],secring=secrings[2],verbose=verbose)
-    if keygen:
+    if keygen: # pragma: no cover
         key1 = gpg1.gen_key(gpg1.gen_key_input(name_email=sender,key_length=1024,passphrase=passphrase)).fingerprint
         key2 = gpg2.gen_key(gpg2.gen_key_input(name_email=receiver,key_length=1024)).fingerprint
         key3 = gpg3.gen_key(gpg3.gen_key_input(name_email=third,key_length=1024)).fingerprint
@@ -71,7 +74,7 @@ def keys(request):
     pubkey1= gpg1.export_keys(key1)
     pubkey2= gpg2.export_keys(key2)
     pubkey3= gpg3.export_keys(key3)
-    if not generate and not os.path.exists(pubring):
+    if not generate and not os.path.exists(pubring): # pragma: no cover
         gpg = gnupg.GPG(keyring=pubring,verbose=verbose)
         gpg.import_keys(pubkey1)
         gpg.import_keys(pubkey2)
@@ -115,23 +118,3 @@ def bilateral(request,keys):
         for tmp in keyrings: os.unlink(tmp)
     request.addfinalizer(fin)
     return {'id1':id1,'id2':id2,'gpg1':gpg1,'gpg2':gpg2}
-
-@fixture(scope='module')
-def trilateral(request,keys):
-    import gnupg
-    from kryptomime.pgp import GPGMIME
-    from ekklesia.data import tmpfname
-    keyrings = [tmpfname() for i in range(3)]
-    gpg1 = gnupg.GPG(keyring=keyrings[0],secring=keys['secrings'][0])
-    gpg2 = gnupg.GPG(keyring=keyrings[1],secring=keys['secrings'][1])
-    gpg3 = gnupg.GPG(keyring=keyrings[2],secring=keys['secrings'][2])
-    for gpg in (gpg1,gpg2,gpg3):
-        for i in range(1,3): gpg.import_keys(keys['pubkey%i'%i])
-    id1 = GPGMIME(gpg1,default_key=(sender,passphrase))
-    id2 = GPGMIME(gpg2,default_key=receiver)
-    id3 = GPGMIME(gpg3,default_key=third)
-    def fin():
-        import os
-        for tmp in keyrings: os.unlink(tmp)
-    request.addfinalizer(fin)
-    return {'id1':id1,'id2':id2,'id3':id3,'gpg1':gpg1,'gpg2':gpg2,'gpg2':gpg3}

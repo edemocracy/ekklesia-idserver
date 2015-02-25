@@ -418,7 +418,6 @@ class GuestRegistrationForm(RegistrationForm):
     city = forms.CharField(label=_("City"),max_length=30)
     postal_code = forms.RegexField(regex=r'^\d{5}$', max_length=5, label=_("Postal code"),
                                 error_messages={'invalid': _("This value may contain only digits.")})
-    city = forms.CharField(label=_("City"),max_length=30)
     country = CountryField(_("Country"),default='DE')
     #phone = PhoneNumberField(_("Phone number"))
 

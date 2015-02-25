@@ -150,7 +150,8 @@ def smtp_init(config):
     tmp = smtp_defaults.copy()
     tmp.update(config)
     config = SMTPConfig(**tmp)
-    return SMTPOutput(host=config.host,port=config.port,user=config.user,password=config.password,
+    return SMTPOutput(host=config.host,port=config.port,
+        user=config.user.encode('ascii'),password=config.password.encode('ascii'),
         certfile=config.certfile,keyfile=config.keyfile,ca_certs=config.ca_certs)
 
 IMAPConfig = namedtuple("IMAPConfig", 'host port user password cram_md5 certfile keyfile ca_certs')

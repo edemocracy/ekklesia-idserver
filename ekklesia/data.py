@@ -49,7 +49,7 @@ def repr_object(obj,keys,replace={}):
     for key in keys:
         if key in replace: value=replace[key]
         else: value = getattr(obj,key)
-        result += repr(value)+','
+        result += '%s=%s,' % (key,repr(value))
     return result[:-1]+')'
 
 def objects_equal(a,b,keys=None):
@@ -127,7 +127,7 @@ def json_encrypt(data, gpg, encrypt=False,sign=True, output=None):
         output['encrypted_data'] = str(result)
     return output, result
 
-def special_open(filename=None,mode='r'):
+def special_open(filename=None,mode='r'): # pragma: no cover
     import sys
     if filename and filename != '-':
         return open(filename, mode)
@@ -137,7 +137,7 @@ def special_open(filename=None,mode='r'):
         return sys.stdin
 
 @contextlib.contextmanager
-def special_openwith(filename=None,mode='r'):
+def special_openwith(filename=None,mode='r'): # pragma: no cover
     import sys
     special = True
     if filename and filename != '-':
@@ -337,7 +337,7 @@ class DataTable(object):
         elif self.fileformat in ('json','jsondict','json-file','jsondict-file'):
             import json
             data = {'format':self.dataformat,'version':self.version,
-                'fields':self.columns,'data':self.rows}
+                'fields':list(self.columns),'data':self.rows}
             if self.fileformat in ('json','jsondict'): output = self.file
             else: output = None
             if self.encrypt or self.sign:

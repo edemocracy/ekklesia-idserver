@@ -8,6 +8,13 @@ from django.conf import settings
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'identity.settings')
+os.environ.setdefault('DJANGO_CONFIGURATION', 'Development')
+
+import configurations
+try: configurations.setup()
+except:
+    from configurations.importer import install
+    install()
 
 app = Celery('identity')
 
@@ -15,8 +22,3 @@ app = Celery('identity')
 # pickle the object when using Windows.
 app.config_from_object('django.conf:settings')
 app.autodiscover_tasks(lambda: settings.INSTALLED_APPS)
-
-
-@app.task(bind=True)
-def debug_task(self):
-    print('Request: {0!r}'.format(self.request))

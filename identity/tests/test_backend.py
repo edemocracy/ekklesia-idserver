@@ -127,7 +127,7 @@ def test_registerkey(request,accounts,mails,bilateral,defect):
     # verifiyed key, receive
     return
 
-@mark.parametrize("variant", ['','2fac'])
+@mark.parametrize("variant", ['','2fac']) # update
 @mark.django_db
 def test_member(request,accounts,invitations,bilateral,client,variant,settings):
     from idapi.backendviews import get_members, update_members
@@ -150,24 +150,31 @@ def test_member(request,accounts,invitations,bilateral,client,variant,settings):
         email='member8@localhost',uuid='uid8')
     conf8 = EMailConfirmation.objects.create(user=member8, confirmation_key='key8')
 
+    activate = ['activate'] if twofactor else []
+
+    response, members = api(client,'backend/members/?new=1',user='members')
+    assert response.status_code == 200
+    members, encrypted, signed, result = json_decrypt(members,bilateral['id2'])
+    assert encrypted and signed
+    data = [['uid6','password6'],['uid7','password7']]
+    assert members == dict(fields=['uuid']+activate, version=[1, 0], format='member',
+         data=data if twofactor else [v[:-1] for v in data])
+
     response, members = api(client,'backend/members/',user='members')
     assert response.status_code == 200
     #members = get_members(crypto=bilateral['id1'])
     members, encrypted, signed, result = json_decrypt(members,bilateral['id2'])
     assert encrypted and signed
-    activate = ['activate'] if twofactor else []
-    data = [['uid1',''],['uid2',''],['uid3',''],['uid6','password6'],['uid7','password7']]
-    if not twofactor: data = [v[:-1] for v in data]
+    data = [['uid1',''],['uid2',''],['uid3','']]+data
     assert members == dict(fields=['uuid']+activate, version=[1, 0], format='member',
-         data=data)
+         data=data if twofactor else [v[:-1] for v in data])
 
     data = [['uid1','eligible',1,2,''],['uid2','member',1,5,''],['uid3','deleted',0,0,''],
             ['uid6','member',1,0,True],['uid7','deleted',0,0,False]]
-    if not twofactor: data = [v[:-1] for v in data]
     members = dict(fields=['uuid','status','verified','department']+activate,
          version=[1, 0], format='member',
     #    data=[['uid1',0,0,2],['uid2',1,1,3],['uid3',1,1,4]])
-         data=data)
+         data=data if twofactor else [v[:-1] for v in data])
     departments = dict(fields=('id','parent','name','depth'), version=[1, 0], format='department',
     #    data=[[1,None,'root',1],[2,1,'sub',2],[3,2,'subsub',4],[4,1,'sub2',2]])
          data=[[1,None,'r00t',1],[2,1,'s0b',2],[5,2,'s0bsub',3],[4,2,'s0bsub2',3]])
@@ -224,6 +231,13 @@ def test_invitation(request,accounts,bilateral,invitations,client):
     from idapi.backendviews import get_invitations, update_invitations
     from ekklesia.data import json_decrypt, json_encrypt
     import os
+
+    response, invitations = api(client,'backend/invitations/?changed=1',user='invitations')
+    assert response.status_code == 200
+    invitations, encrypted, signed, result = json_decrypt(invitations,bilateral['id2'])
+    assert encrypted and signed
+    assert invitations == dict(fields=['uuid','status'], version=[1, 0], format='invitation',
+         data=[['uid1','registered'],['uid5','failed']])
 
     response, invitations = api(client,'backend/invitations/',user='invitations')
     assert response.status_code == 200

@@ -1,6 +1,15 @@
 [run]
 source = ekklesia
-omit = */migrations/*
+omit = */migrations/*, */tests/*
+ ekklesia/admin.py
+ ekklesia/amqp.py
+ ekklesia/fields.py
+ ekklesia/models.py
+ ekklesia/middleware.py
+ ekklesia/mail.py
+ ekklesia/requests.py
+ ekklesia/views.py
+ ekklesia/backends/keys.py
 branch = True
 
 [report]

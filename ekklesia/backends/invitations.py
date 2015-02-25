@@ -25,15 +25,13 @@ uuid    - unique member id (UUID max.36)
 email   - email adress (if not joint db)
 code - unique invitation code (max.36)
 status  - new, uploaded, failed, registered, deleted
-extra for sync:
-echo    - return in response (optional)
-check_email - email to check, return 0/1 response if not empty (optional)
+sent    - unsent, sent, retry, failed
+lastchange - UTC datetime when status was changed, email was sent, or null
+optional for sync:
+echo    - return in response
+check_email - email to check, return 0/1 response if not empty
 
-internal:
-sent    - 1=ok, 0=not send, -1=failed, -2=retry
-#senddate - when code email was sent, or null
-
-import fields: uuid(,email if not joint)[,code]
+import fields: uuid(,email if not joint)
 export fields: uuid,code(,email if not joint)
 sync download: uuid,status[,check_email][,echo]
 sync upload: uuid,status,code[,check_email][,echo]
@@ -51,7 +49,8 @@ if email is empty -> delete code
 
 sync:
 download: uuid,status
- registered and failed uuids
+ new, registered and failed uuids
+ for push sync: only download failed/registered if status not already updated
 upload: uuid,status,code
  if implicit delete: non-uploaded invs are deleted
  status: new (or response to failed),deleted,registered (response to registered)
@@ -93,19 +92,19 @@ requirements: Python >=2.7, sqlalchemy, gnupg, requests
 """
 
 from __future__ import print_function, absolute_import
-from ekklesia.backends import (AbstractDatabase, APIConfig, spec_defaults, api_defaults,
+from ekklesia.backends import (AbstractDatabase, api_defaults,
     FileMissingWarning, UnknownFieldsWarning, DeclEnum, EnumSymbol)
 from ekklesia.mail import gpg_defaults, smtp_defaults
 from ekklesia import FormattedWarning
 
-class StatusType(DeclEnum):
+class IStatusType(DeclEnum):
     deleted = EnumSymbol('deleted')
     new = EnumSymbol('new')
     uploaded = EnumSymbol('uploaded')
     failed = EnumSymbol('failed')
     registered = EnumSymbol('registered')
 
-class SentStatusType(DeclEnum):
+class ISentStatusType(DeclEnum):
     unsent = EnumSymbol('unsent')
     sent = EnumSymbol('sent')
     retry = EnumSymbol('retry')
@@ -125,13 +124,26 @@ failed_body = string(default="Your account registration has failed. You're going
 invite_url = string(default='https://localhost/register?code=%s')
 invite_sign = boolean(default=True) # sign invitation emails
 invite_notify = boolean(default=True) # send confirmation after registration
+# required signature for import, receiver for export
+io_key = string
+broker = string
+broker_exchange = string(default='id-backend')
+broker_queue = string(default='id-invitations')
 '''
 
 class InvitationDatabase(AbstractDatabase):
     version = [1,0]
     
-    def __init__(self,config={},gpgconfig=gpg_defaults,apiconfig=api_defaults,smtpconfig=smtp_defaults,logger=None):
-        super(InvitationDatabase,self).__init__(config,gpgconfig,logger)
+    def __init__(self, *args, **kwargs):
+        super(InvitationDatabase,self).__init__(*args, **kwargs)
+        self.invite_api = None
+        self.smtpconfig = None
+        self.member_class = None
+
+    def configure(self,config={},gpgconfig=gpg_defaults,apiconfig=api_defaults,
+        smtpconfig=smtp_defaults):
+        from ekklesia.backends import APIConfig, spec_defaults
+        super(InvitationDatabase,self).configure(config=config,gpgconfig=gpgconfig)
         api = api_defaults.copy()
         api.update(apiconfig)
         self.invite_api = APIConfig(**api)
@@ -141,6 +153,7 @@ class InvitationDatabase(AbstractDatabase):
         defaults = spec_defaults(invitations_spec)['invitations']
         for key in defaults.keys():
             setattr(self,key,config.get(key,defaults[key]))
+        return self
 
     def init_parser_reset(self,subparsers):
         parser = subparsers.add_parser('reset', help='reset sent status or invite codes')
@@ -158,7 +171,8 @@ class InvitationDatabase(AbstractDatabase):
         self.init_parser_init(subparsers)
         self.init_parser_import(subparsers)
         self.init_parser_export(subparsers)
-        self.init_parser_sync(subparsers)
+        self.init_parser_sync(subparsers,twopass=True)
+        self.init_parser_push(subparsers)
         self.init_parser_reset(subparsers)
         self.init_parser_send(subparsers)
         return parser, subparsers
@@ -168,44 +182,63 @@ class InvitationDatabase(AbstractDatabase):
             Sequence, Integer, String, Boolean, DateTime, func)
         from sqlalchemy.orm import relationship, backref
         from ekklesia.data import init_object, repr_object
+        from datetime import datetime
 
         class Invitation(self.Base):
             if not reflect:
                 __tablename__ = self.invite_table
                 if self.member_class:
                     id = Column(Integer, Sequence('id_seq',optional=True), primary_key=True)
-                    member_id = Column(Integer, ForeignKey(self.member_class.id,name='member_fk'), nullable=False)
+                    member_id = Column(String(36),
+                        ForeignKey(self.member_class.uuid,name='member_fk'), nullable=False)
                 else:
                     uuid = Column(String(36), primary_key=True)
                     email = Column(String(254), nullable=False, unique=True, index=True)
                 code = Column(String(36), nullable=False, unique=True)
-                status = Column(StatusType.db_type(), nullable=False, default=StatusType.new)
-                sent = Column(SentStatusType.db_type(), nullable=False, default=SentStatusType.unsent)
-                if 'lastchange' in self.invite_import:
-                    lastchange = Column(DateTime, nullable=True, default=func.now())
-            else:
-                __table__ = Table(self.invite_table, self.Base.metadata)
+                status = Column(IStatusType.db_type(), nullable=False, default=IStatusType.new)
+                sent = Column(ISentStatusType.db_type(), nullable=False, default=ISentStatusType.unsent)
+                lastchange = Column(DateTime, nullable=True, default=datetime.utcnow)
+            else: # pragma: no cover
+                __table__ = Table(self.invite_table, self.Base.metadata,
+                    Column('status',IStatusType.db_type(), nullable=False, default=IStatusType.new),
+                    Column('sent',ISentStatusType.db_type(), nullable=False, default=ISentStatusType.unsent),
+                    autoload=True)
                 if 'invitations' in self.column_map:
                     __mapper_args__ = {'include_properties' : list(self.column_map['invitations'].keys()) }
             if self.member_class:
                 member = relationship(self.member_class, backref=backref("invitation", uselist=False))
 
-            def __init__(inv, **kwargs):
+            def __init__(inv, status=IStatusType.new, sent=ISentStatusType.unsent, lastchange=None, **kwargs):
+                super(self.Base,inv).__init__()
                 from uuid import uuid4
                 if 'uuid' in kwargs: assert kwargs['uuid'], "uuid missing"
                 if 'code' in kwargs: value = kwargs['code']
-                else: value = uuid4()
-                kwargs['code'] = str(value)
-                init_object(inv,**kwargs)
+                else: value = str(uuid4())
+                kwargs['code'] = value
+                kwargs['status'] = status
+                kwargs['sent'] = sent
+                kwargs['lastchange'] = lastchange or datetime.utcnow()
+                inv.update(**kwargs)
 
-            def reset(inv):
+            def update(inv, **kwargs):
+                init_object(inv,**kwargs)
+                if not 'lastchange' in kwargs: inv.change()
+
+            def reset(inv, status=IStatusType.new):
                 from uuid import uuid4
-                import datetime
-                inv.status = StatusType.new
-                inv.sent = SentStatusType.unsent
-                inv.code = str(uuid4())
-                if 'lastchange' in self.invite_import:
-                    data['lastchange'] = datetime.utcnow()
+                if status:
+                     inv.status = status
+                     if status == IStatusType.new:
+                         inv.code = str(uuid4())
+                inv.sent = ISentStatusType.unsent
+                inv.change()
+
+            def delete(inv):
+                inv.status = IStatusType.deleted
+                inv.change()
+
+            def change(inv):
+                inv.lastchange = datetime.utcnow()
 
             def __repr__(inv):
                 return repr_object(inv,self.invite_columns)
@@ -218,21 +251,26 @@ class InvitationDatabase(AbstractDatabase):
 
     def import_invitations(self,input,decrypt=False,verify=False,
             allfields=False,dryrun=False,format='csv'):
+        """import data from input.
+        allfields is used for restore and requires all columns.
+        decrypt=with the default key, verify=check whether its signed with io_key.
+        """
         from ekklesia.data import DataTable
-        from datetime import datetime
         session = self.session
         Invitation = self.Invitation
         membercls = self.member_class
         columns = self.invite_columns
-        if membercls: columns.append('uuid')
+        if membercls:
+            columns = columns+['uuid']
+            columns.remove('id')
         if allfields: reqcolumns = columns
-        elif membercls: reqcolumns.append('uuid')
+        elif membercls: reqcolumns = ['uuid']
         else: reqcolumns = ['uuid','email']
         reader = DataTable(columns,coltypes=self.invite_types,required=reqcolumns,
             dataformat='invitation',fileformat=format,version=self.version,gpg=self.gpg)
+        if not allfields and verify: verify = self.io_key
         reader.open(input,'r',encrypt=decrypt,sign=verify)
-        columns, tmp = reader.get_columns()
-        recordchange = 'status' in columns and not 'lastchange' in columns
+        columns = reader.get_columns()[0]
         iquery = session.query(Invitation)
         count = 0
         seen = set()
@@ -252,28 +290,25 @@ class InvitationDatabase(AbstractDatabase):
                     if member.invitation:
                         self.info("scheduling invitation for uuid '%s' for deletion", member.uuid)
                         if not dryrun:
-                            member.invitation.status = StatusType.deleted
-                            member.invitation.lastchange = datetime.utcnow()
+                            member.invitation.delete()
                     continue
                 count += 1
                 if dryrun: continue
                 if member.invitation is None: # create a new invitation
                     session.add(Invitation(member=member,**data)) #new
                 else:
-                    if recordchange and data['status']!=member.invitation.status:
-                        data['lastchange'] = datetime.utcnow()
-                    member.invitation.__init__(**data) #update inv
+                    if not 'sent' in columns and data['status'] in (IStatusType.new,IStatusType.uploaded):
+                        data['sent'] = ISentStatusType.unsent
+                    member.invitation.update(**data) #update inv
             else:
                 inv = iquery.filter_by(uuid=uuid).first()
                 if not data['email']: # email removed, disable invitation
                     if inv is None:
                         self.warn("uuid %s not found" % uuid)
                         continue
-                    if inv.status == StatusType.deleted: continue
+                    if inv.status == IStatusType.deleted: continue
                     self.info("scheduling invitation for uuid '%s' for deletion", inv.uuid)
-                    if not dryrun:
-                        inv.status = StatusType.deleted
-                        inv.lastchange = datetime.utcnow()
+                    if not dryrun: inv.delete()
                     continue
                 # check whether email already used
                 if not inv or inv.email != data['email']:
@@ -286,12 +321,11 @@ class InvitationDatabase(AbstractDatabase):
                 if dryrun: continue
                 if inv:
                     # if email changed and code has been sent, reset invcode and lastchange, unless allfields is set
-                    needreset = not allfields and inv.status==StatusType.uploaded and \
-                         inv.sent==SentStatusType.sent and 'email' in data and data['email']!=inv.email and \
+                    needreset = not allfields and inv.status==IStatusType.uploaded and \
+                         inv.sent==ISentStatusType.sent and 'email' in data and data['email']!=inv.email and \
                          (not 'code' in data or data['code']==inv.code)
-                    if not needreset and recordchange and data['status'] != inv.status:
-                        data['lastchange'] = datetime.utcnow()
-                    inv.__init__(**data) #update inv
+                    if not needreset: data['code'] = inv.code # preserve
+                    inv.update(**data)
                     if needreset: inv.reset()
                 else:
                     session.add(Invitation(**data)) #new
@@ -299,22 +333,29 @@ class InvitationDatabase(AbstractDatabase):
         if not dryrun: session.commit()
 
     def export_invitations(self,output,allfields=False,encrypt=None,sign=False,format='csv'):
+        """export invitations, sorted by primary (id, or uuid if joint), to output.
+        allfields is used for backup and writes all columns.
+        encrypt=to io_key, sign=with default key.
+        """
         from ekklesia.data import DataTable
         session = self.session
         Invitation = self.Invitation
         membercls = self.member_class
         if allfields:
-            columns = self.invite_columns
-            if membercls: columns = ['uuid']+columns
+            if membercls:
+                columns = ['uuid']+self.invite_columns
+                columns.remove('id')
+            else: columns = list(self.invite_columns)
         else:  # restricted
             columns = ['uuid','code']
-            if not membercls: columns.append('email')
-        if encrypt: encrypt = [encrypt]
+            if not membercls: columns = columns+['email']
+        if encrypt: encrypt = [self.io_key]
         writer = DataTable(columns,coltypes=self.invite_types,gpg=self.gpg,
             dataformat='invitation',fileformat=format,version=self.version)
         writer.open(output,'w',encrypt=encrypt,sign=sign)
         count = 0
-        for inv in session.query(Invitation).order_by(Invitation.id if membercls else Invitation.uuid):
+        for inv in session.query(Invitation).order_by(
+            Invitation.id if membercls else Invitation.uuid).yield_per(1000):
             extra = {}
             if membercls: extra['uuid'] = inv.member.uuid
             writer.write(inv,extra)
@@ -322,8 +363,8 @@ class InvitationDatabase(AbstractDatabase):
         writer.close()
         self.info('%i exported invitations', count)
 
-    def sync_invitations(self,download=True,upload=True,dryrun=False,input=None,output=None):
-        # input/output=local streams
+    def sync_invitations(self,download=True,upload=True,dryrun=False,quick=False,input=None,output=None):
+        "sync invitations with ID server"
         from ekklesia.backends import api_init
         from ekklesia.data import DataTable
         from six.moves import cStringIO as StringIO
@@ -336,16 +377,24 @@ class InvitationDatabase(AbstractDatabase):
         reply = False # whether server requested reply
         if download: # download registered uuids(used codes), mark used
             if input: input = json.load(input)
-            if not input:
-                resp = api.get(self.invite_api.url)
-                assert resp.status_code == requests.codes.ok, 'cannot download used invite codes'
+            if not input: # pragma: no cover
+                url = self.invite_api.url
+                if quick: url+'?changed=1'
+                resp = api.get(url)
+                if resp.status_code != requests.codes.ok:
+                    if self.debugging: open('invdown.html','w').write(resp.content)
+                    assert False, 'cannot download used invite codes'
                 input = resp.json()
+            if not input:
+                self.warn("input is empty")
+                return
             columns = ['uuid','status','echo']
             if check_email: columns.append(check_email)
             reader = DataTable(columns,coltypes=self.invite_types,required=('uuid','status'),gpg=self.gpg,
                 dataformat='invitation',fileformat=self.invite_api.format,version=self.version)
-            reader.open(input,'r',encrypt=self.invite_api.encrypt,sign=self.invite_api.receiver)
-            rcolumns,unknown = reader.get_columns()
+            sign = self.invite_api.receiver if self.invite_api.sign else False
+            reader.open(input,'r',encrypt=self.invite_api.encrypt,sign=sign)
+            rcolumns, unknown = reader.get_columns()
             if unknown: self.warn('ignoring unknown fields',unknown)
             reply = 'echo' in rcolumns # reply?
             if check_email: reply = reply or check_email in rcolumns
@@ -382,40 +431,38 @@ class InvitationDatabase(AbstractDatabase):
                     continue
                 inv = query.filter_by(uuid=uuid).first()
                 extra = {}
+                if membercls and inv:
+                    inv = inv.invitation
                 if not inv:
                     self.error("member %s is unknown" % data['uuid'])
                     if check_email in columns and data[check_email]:
                         extra[check_email] = False
                     extra['uuid'] = uuid
-                    writer.write(Invitation(status=StatusType.deleted,code=''),extra)
+                    writer.write(Invitation(status=IStatusType.deleted,code=''),extra)
                     continue
-                if membercls:
-                    inv = inv.invitation
-                    if not inv: # FIXME: generate?
-                        self.error("missing code for %s" % uuid)
-                        continue
                 status = data['status'] # compare status
                 # new on new -> uploaded
                 # new on uploaded -> ignore
                 # registered/failed on uploaded -> registered/failed
                 # registered/failed on same -> ignore
                 # deleted on failed -> new
-                if status == StatusType.new:
-                    if inv.status == StatusType.new:
-                        inv.status = StatusType.uploaded
-                        inv.sent = SentStatusType.unsent
-                    elif inv.status != StatusType.uploaded:
+                if status == IStatusType.new:
+                    if inv.status == IStatusType.new:
+                        inv.status = IStatusType.uploaded
+                        inv.sent = ISentStatusType.unsent
+                    elif inv.status != IStatusType.uploaded:
                         self.error("bad status %s for uuid %s, current %s",
                              status,data['uuid'],inv.status)
                         continue
-                elif inv.status == StatusType.uploaded: # status in registered/failed
+                elif inv.status == IStatusType.uploaded: # status in registered/failed
+                    if inv.status != status: inv.change()
                     inv.status = status # upload confirmed or failed registration
-                    inv.sent = SentStatusType.unsent
+                    inv.sent = ISentStatusType.unsent
                 elif status != inv.status:
                     self.error("bad status %s for uuid %s, current %s",
                         status, data['uuid'],inv.status)
                     continue
-                if upload and (status != StatusType.new or reply): # write response for uploaded
+                if upload and (status != IStatusType.new or reply): # write response for uploaded
                     if check_email and check_email in columns:
                         if member_class: extra[check_email] = inv.member.email == data[check_email]
                         else: extra[check_email] = inv.email == data[check_email]
@@ -428,9 +475,9 @@ class InvitationDatabase(AbstractDatabase):
         if not upload: return
         # process failed, which have already been deleted on the server and are ready for reset
         count = 0
-        query = session.query(Invitation).filter_by(status=str(StatusType.failed),
-            sent=str(SentStatusType.sent))
-        for inv in query:
+        query = session.query(Invitation).filter_by(status=IStatusType.failed,
+            sent=ISentStatusType.sent)
+        for inv in query.yield_per(1000):
             extra = {}
             if membercls: uuid = inv.member.uuid
             else: uuid = inv.uuid
@@ -439,31 +486,73 @@ class InvitationDatabase(AbstractDatabase):
             count += 1
         self.info('%i codes resetted', count)
         if not dryrun: session.commit()
-        # append new invitations
-        count = 0
-        query = session.query(Invitation).filter_by(status=str(StatusType.new))
-        for inv in query:
-            extra = {}
-            if membercls:
-                uuid = inv.member.uuid
-                extra['uuid'] = uuid
-            else: uuid = inv.uuid
-            writer.write(inv,extra)
-            count += 1
+        if not quick:
+            # append new invitations
+            count = 0
+            query = session.query(Invitation).filter_by(status=IStatusType.new)
+            for inv in query.yield_per(1000):
+                extra = {}
+                if membercls:
+                    uuid = inv.member.uuid
+                    extra['uuid'] = uuid
+                else: uuid = inv.uuid
+                writer.write(inv,extra)
+                count += 1
+            self.info('%i new codes uploaded', count)
         writer.close()
-        self.info('%i new codes uploaded', count)
         if output:
             json.dump(out,output)
-        elif not dryrun:
-            r = api.post(self.invite_api.url,json=out)
-            assert r.status_code == requests.codes.ok, 'cannot upload data'
-    
+        elif not dryrun: # pragma: no cover
+            resp = api.post(self.invite_api.url,json=out)
+            if resp.status_code != requests.codes.ok:
+                if self.debugging: open('invup.html','w').write(resp.content)
+                assert False, 'cannot upload data'
+
+    def process_update(self,msg,input=None,output=None):
+        "process update valid messages with changing to registered/failed status"
+        self.info('got update %s',msg)
+        version = msg.get('version')
+        if not (msg and msg.get('format')=='member' and len(version)==2):
+            self.warn('invalid message')
+            return False
+        if version[0]!=1:
+            self.warn('invalid message version %s', version)
+            return False
+        status, uuids = msg.get('status'), msg.get('uuid')
+        if not (status and uuids):
+            self.warn('invalid status %s or uuid %s', status, uuids)
+            return False
+        if not status in ('registered','failed'):
+            self.debug('ignoring status %s', status)
+            return False
+        if not isinstance(uuids,list): uuids = [uuids]
+        membercls = self.member_class
+        if membercls: query = self.session.query(membercls)
+        else: query = self.session.query(self.Invitation)
+        found = False
+        for uuid in uuids:
+            inv = query.filter_by(uuid=uuid).first()
+            if membercls and inv: inv = inv.invitation
+            if not inv:
+                self.warn('uuid invitation not found %s', uuid)
+                continue
+            if inv.status in (IStatusType.registered,IStatusType.failed):
+                self.warn('uuid has already been updated %s', uuid)
+            else: found = True
+        if not found: return False
+        self.sync_invitations(self,quick=True,input=input,output=output)
+        return True
+
     def reset_invitations(self,input,code=False,uuids=False,dryrun=False):
+        """reset invitations for the members in input (linewise).
+        if uuids, the list contains the uuids, otherwise the emails.
+        if code, reset the code and status, otherwise only the sent status.
+        """
         session = self.session
         Invitation = self.Invitation
         membercls = self.member_class
         count = 0
-        if membercls: query = session.query(Invitation,membercls)
+        if membercls: query = session.query(membercls)
         else: query = session.query(Invitation)
         for line in input:
             line = line.rstrip()
@@ -472,51 +561,59 @@ class InvitationDatabase(AbstractDatabase):
             if inv is None:
                 self.error('member %s not found' % line)
                 continue
+            if membercls:
+                inv = inv.invitation
+                if not inv:
+                    self.error('invitation for %s not found' % line)
+                    continue
             if code:
                 from uuid import uuid4
-                if inv.status==StatusType.registered:
+                if inv.status==IStatusType.registered:
                     self.error('member %s has already used the code' % line)
                     continue
-                if inv.status==StatusType.deleted:
+                if inv.status==IStatusType.deleted:
                     self.error('member %s is already deactivated' % line)
                     continue
                 count +=1
                 if dryrun: continue
-                inv.reset()
+                inv.reset() # new code and set to new/unsent
             else:
                 count +=1
-                if not dryrun: inv.sent = SentStatusType.unsent # resent
+                if not dryrun: inv.reset(status=None) # set only to unsent
         self.info('%i resets', count)
         if not dryrun: session.commit()
 
     def create_mail(self,status,inv,sender,email,code=None):
+        "create mail using the status dependent template"
         from kryptomime import create_mail
-        if status == StatusType.uploaded:
+        if status == IStatusType.uploaded:
             link = self.invite_url % inv.code
             subject, body = self.invite_subject,self.invite_body % link
-        elif status == StatusType.registered:
+        elif status == IStatusType.registered:
             subject, body = self.registered_subject, self.registered_body
-        else: # status == StatusType.failed:
+        else: # status == IStatusType.failed:
             subject, body = self.failed_subject, self.failed_body
         return create_mail(sender,email,subject,body)
 
     def send_invitations(self,dryrun=False,debug_smtp=None):
-        from datetime import datetime
+        "send emails to all uploaded/registered/failed and not already sent invitations"
         from ekklesia.mail import smtp_init
         from sqlalchemy import or_
         import smtplib
         session = self.session
         Invitation = self.Invitation
         if debug_smtp: smtp = debug_smtp
-        else:
+        else: # pragma: no cover
             smtp = smtp_init(self.smtpconfig)
             smtp.open()
         sender = self.gpgconfig['sender']
         query = session.query(Invitation)
-        query = query.filter(Invitation.status.in_([StatusType.uploaded,StatusType.registered,StatusType.failed]))
-        query = query.filter(Invitation.sent.in_([SentStatusType.unsent,SentStatusType.retry]))
+        stati = [IStatusType.uploaded,IStatusType.registered,IStatusType.failed]
+        query = query.filter(Invitation.status.in_(stati)) # not deleted/new
+        sstati = [ISentStatusType.unsent,ISentStatusType.retry]
+        query = query.filter(Invitation.sent.in_(sstati))
         count = 0
-        for inv in query:
+        for inv in query.yield_per(1000):
             if self.member_class: email = inv.member.email
             else: email = inv.email
             self.info('sending %s status %s to %s', inv.code, inv.status, email)
@@ -529,77 +626,100 @@ class InvitationDatabase(AbstractDatabase):
             if not dryrun:
                 try:
                     smtp.send(msg)
-                    inv.sent = SentStatusType.sent
+                    inv.sent = ISentStatusType.sent
                 except smtplib.SMTPRecipientsRefused:
-                    inv.sent = SentStatusType.failed # failed
+                    inv.sent = ISentStatusType.failed # failed
                 except (smtplib.SMTPDataError,smtplib.SMTPSenderRefused,smtplib.SMTPHeloError):
-                    inv.sent = SentStatusType.retry # retry
-                if 'lastchange' in self.invite_import:
-                    inv.lastchange = datetime.now()
+                    inv.sent = ISentStatusType.retry # retry
+                inv.change()
+                if not dryrun: session.commit()
             count +=1
-        if not dryrun: session.commit()
         if not debug_smtp: smtp.close()
         self.info('%i emails successfully sent', count)
 
+    def run_import_invitations(self, args, input): # pragma: no cover
+        from ekklesia.data import special_openwith
+        if args.dryrun: self.info('simulating import')
+        with special_openwith(input, 'r') as f:
+            self.import_invitations(f,decrypt=args.decrypt,verify=args.verify,
+                dryrun=args.dryrun,allfields=args.all)
+
+    def run_export_invitations(self, args, output): # pragma: no cover
+        from ekklesia.data import special_openwith
+        with special_openwith(output, 'w') as f:
+            self.export_invitations(f,encrypt=args.encrypt,
+                sign=args.sign,allfields=args.all)
+
+    def run_push_invitations(self, args): # pragma: no cover
+        if not args.daemon:
+            import signal
+            signal.signal(signal.SIGHUP, self.terminate)
+            signal.signal(signal.SIGINT, self.terminate)
+        assert not self.invite_api.sign or self.gpgconfig['sender'], 'sender for signing missing'
+        if args.dryrun: self.info('simulating push')
+        self.push_sync(upload=args.upload,delay=args.wait,dryrun=args.dryrun)
+
+    def run_sync_invitations(self, args): # pragma: no cover
+        from ekklesia.data import special_open
+        assert not self.invite_api.sign or self.gpgconfig['sender'], 'sender for signing missing'
+        if args.output: assert len(args.output)==1, "only one output file expected"
+        if args.dryrun: self.info('simulating sync')
+        input = special_open(args.input,'r') if args.input else None
+        output = special_open(args.output[0],'w') if args.output else None
+        self.sync_invitations(download=args.download,upload=args.upload,
+            input=input,output=output,dryrun=args.dryrun)
+        if args.ack: # acknowledge new uploads so they can be sent
+            self.sync_invitations(download=True,upload=False,dryrun=args.dryrun)
+
+    def run_reset_invitations(self, args): # pragma: no cover
+        from ekklesia.data import special_openwith
+        if args.dryrun: self.info('simulating reset')
+        with special_openwith(args.file, 'r') as f:
+            self.reset_invitations(f,code=args.invite,uuids=args.uuid,dryrun=args.dryrun)
+
     def run(self, args=None): # pragma: no cover
-        from ekklesia.data import special_openwith, special_open
-        args, engine, parser = self.init_run('invitations','invitation script for members',args)
-        try:
+        from ekklesia.data import special_openwith
+        from ekklesia.backends import api_spec, dummy_context, session_context
+        from ekklesia.mail import gpg_spec, smtp_spec
+        from sqlalchemy import create_engine
+        args, parser = self.init_run('invitations','invitation script for members',args)
+        spec = invitations_spec+gpg_spec+smtp_spec+api_spec('invitation_api')
+        config = self.get_configuration(spec,args,'invitations.ini')
+        self.configure(config=config['invitations'],gpgconfig=config['gnupg'],
+            apiconfig=config['invitation_api'],smtpconfig=config['smtp'])
+        self.init_gnupg()
+        if args.command=='push' and args.daemon:
+            daemon = self.prepare_daemon(args.pid)
+        else: daemon = dummy_context()
+        with daemon, session_context(self):
+            engine = create_engine(self.database,echo=False) #, echo=self.debugging
             if args.command == 'init':
                 self.open_db(engine,mode='create')
                 self.info('database intialized')
                 if args.initial:
-                    with special_openwith(args.initial, 'r') as f:
+                    with special_openwith(args.initial[0], 'r') as f:
                         self.import_invitations(f,allfields=True)
                 return
             elif args.command == 'drop':
                 self.info('deleting database')
-                self.open_db(engine,mode='drop')
+                self.open_db(engine,mode='dropall' if args.all else 'drop')
                 return
             self.open_db(engine,mode='open')
             if args.command == 'import':
-                if args.dryrun: self.info('simulating import')
-                with special_openwith(args.file, 'r') as f:
-                    self.import_invitations(f,decrypt=args.decrypt,verify=args.verify,
-                        dryrun=args.dryrun,allfields=args.all)
+                self.run_import_invitations(args, args.file)
             elif args.command == 'export':
-                with special_openwith(args.file, 'w') as f:
-                    if args.encrypt: args.encrypt = self.gpgconfig['sender'] # to self
-                    self.export_invitations(f,encrypt=args.encrypt,
-                        sign=args.sign,allfields=args.all)
+                self.run_export_invitations(args, args.file)
             elif args.command == 'sync':
-                assert not self.invite_api.sign or self.gpgconfig['sender'], 'sender for signing missing'
-                if args.output: assert len(args.output)==1, "only one output file expected"
-                if args.dryrun: self.info('simulating sync')
-                input = special_open(args.input,'r') if args.input else None
-                output = special_open(args.output[0],'w') if args.output else None
-                self.sync_invitations(download=args.download,upload=args.upload,
-                    input=input,output=output,dryrun=args.dryrun)
+                self.run_sync_invitations(args)
+            elif args.command == 'push':
+                self.run_push_invitations(args)
             elif args.command == 'reset':
-                if args.dryrun: self.info('simulating reset')
-                with special_openwith(args.file, 'r') as f:
-                    self.reset_invitations(f,code=args.invite,uuids=args.uuid,dryrun=args.dryrun)
+                self.run_reset_invitations(args)
             elif args.command == 'send':
                 if args.dryrun: self.info('simulating send')
                 self.send_invitations(dryrun=args.dryrun)
-        except:
-            self.exception('')
-        finally:
-            self.session.close()
 
 def main_func(): # pragma: no cover
-    from ekklesia.backends import api_spec
-    from ekklesia.mail import gpg_spec, smtp_spec
-    import os, configobj, validate
-
-    spec = invitations_spec+gpg_spec+smtp_spec+api_spec
-    config = configobj.ConfigObj('invitations.ini', configspec=spec.split('\n'),encoding='UTF8')
-    config.validate(validate.Validator())
-    if not config['gnupg']['home']:
-        config['gnupg']['home'] = os.path.join(os.getenv('HOME'),'.gnupg')
-    else:
-        config['gnupg']['home'] = os.path.expanduser(config['gnupg']['home'])
-    InvitationDatabase(config=config['invitations'],gpgconfig=config['gnupg'],
-        apiconfig=config['api'],smtpconfig=config['smtp']).run()
+    InvitationDatabase().run()
 
 if __name__ == "__main__": main_func()

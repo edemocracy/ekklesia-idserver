@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 #
-# Member database (sync)
+# Member database
 #
 # Copyright (C) 2013,2014 by entropy@heterarchy.net
 #
@@ -20,23 +20,27 @@
 # For more details see the file COPYING.
 
 """
-Backend syncing the departments and revelant private data of member with the ID server and other backends.
-May be using data from an existing or its own database.
-Minimum data: UUID, email
+This backend manages the relevant private data of members (including the departments) and
+syncs them with the ID server and other backends.
+It may store its data in an existing (external) or its own database.
+For each members at least the UUID and email must be provided.
 The fields in the DB are listed in member_import, and may have different names (column_map).
-The methods for acessing the fields can be overriden. by default they access the field.
+The methods for accessing the fields can be overriden.
 
-default: fully managed (own structure), optional fields for storage
- separate member + department tables
-custom: existing db (mapping, department+parent etc), extra fields, overwrite access methods
+default mode: fully managed (own DB and structure) with separate member + department tables
+ optional fields for storage
+may be customized for existing db (mapping, department+parent etc), extra fields, overwrite access methods
+The settings are stored in members.ini
 
-fields (format: member 1.0):
+The fields in the database and import/export files are:
+
+field (format: member 1.0):
 uuid    - unique member id (UUID max.36) as reference
 memberno - unique member no (optional)
 email   - email address
 status  - member status: deleted, member, eligible
 verified - whether member is verified (optional)
-registered - time when check_member was positiv for the first time (optional)
+registered - UTC datetime when check_member was positiv for the first time (optional)
 department - department id (optional)
 parent  - parent department id (optional, if department_spec is implicit)
 location  - location of member (optional)
@@ -69,6 +73,8 @@ relevant changes to upstream DB:
 1. download: only active, or registering UUIDs (newmember,inv=registering) are downloaded
  for registering UUIDs also include the activation passwort
  fields: uuid[,check_member][,check_email][,echo]
+for push sync: only download registering when new registering
+ uuid receieved and uuid is not already registered
 2. upload: replies to download (member,department),
  sync departments
  member fields: uuid,status,verified,department[,check_member][,check_email][,gpslat,gpslng][,echo]
@@ -82,7 +88,7 @@ Requirements: Python >=2.7, sqlalchemy, gnupg, requests, pygeocode
 """
 
 from __future__ import print_function, absolute_import
-from ekklesia.backends import (AbstractDatabase, APIConfig, spec_defaults, api_defaults,
+from ekklesia.backends import (AbstractDatabase, api_defaults,
     FileMissingWarning, UnknownFieldsWarning, DeclEnum, EnumSymbol)
 from ekklesia.mail import gpg_defaults, smtp_defaults
 from ekklesia import FormattedWarning
@@ -90,8 +96,8 @@ from ekklesia import FormattedWarning
 members_spec="""
 [members]
 member_table = string(default='members')
-member_import = string_list(default=list('uuid','email','status','verified','department'))
-# optional 'memberno','birthday','location'
+member_import = string_list(default=list('uuid','email','status','registered','department'))
+# optional 'registered','verified','memberno','birthday','location'
 # if empty member_sync = member_import
 member_sync = string_list(default=list('uuid','status','verified','department'))
 # type of department field: number/name, implicit:reconstruct hierarchy from extra parent name
@@ -104,12 +110,17 @@ check_email = string # field name for check_member, if empty disabled
 export_emails = boolean(default=False)
 # sync: email+uuid export of non-registered members
 export_invite = boolean(default=True)
+# required signature for import, receiver for export
+io_key = string
 # email of receiver for export --mail or sync
 email_receiver = string
 geolut_path = string(default='geolut.db')
+broker = string
+broker_exchange = string(default='id-backend')
+broker_queue = string(default='id-members')
 """
 
-class StatusType(DeclEnum):
+class MStatusType(DeclEnum):
     deleted = EnumSymbol('deleted')
     member = EnumSymbol('member')
     eligible = EnumSymbol('eligible')
@@ -117,26 +128,32 @@ class StatusType(DeclEnum):
 class MemberDatabase(AbstractDatabase):
     version = [1,0]
 
-    def __init__(self,config={},gpgconfig=gpg_defaults,apiconfig=api_defaults,
-        smtpconfig=smtp_defaults,logger=None):
-        super(MemberDatabase,self).__init__(config,gpgconfig,logger)
+    def __init__(self, *args, **kwargs):
+        super(MemberDatabase,self).__init__(*args, **kwargs)
+        self.member_api = None
+        self.smtpconfig = None
+
+    def configure(self,config={},gpgconfig=gpg_defaults,apiconfig=api_defaults,
+        smtpconfig=smtp_defaults):
+        from ekklesia.backends import APIConfig, spec_defaults
+        super(MemberDatabase,self).configure(config=config,gpgconfig=gpgconfig)
         api = api_defaults.copy()
         api.update(apiconfig)
         self.member_api = APIConfig(**api)
         self.smtpconfig = smtpconfig
-        assert self.version[0]<=1, 'invalid version'
         defaults = spec_defaults(members_spec)['members']
         for key in defaults.keys():
             setattr(self,key,config.get(key,defaults[key]))
         if not self.member_sync: self.member_sync = self.member_import
         assert self.department_spec != 'number' or 'id' in self.department_import, "id field required"
+        return self
 
     def init_parser_import(self,subparsers):
         parser = subparsers.add_parser('import', help='import data')
         parser.add_argument("-a", "--all", action="store_true", default=False, help="require import of all fields")
         parser.add_argument("-d", "--decrypt", action="store_true", default=False, help="decrypt data")
         parser.add_argument("-v", "--verify", action="store_true", default=False, help="verify signature of data (required if signed)")
-        parser.add_argument("-s", "--sync", action="store_true", default=False, help="keep only imported data")
+        #parser.add_argument("-s", "--sync", action="store_true", default=False, help="keep only imported data")
         parser.add_argument("input",nargs="+",help='input file(s) with members[,departments]')
         return parser
 
@@ -148,14 +165,13 @@ class MemberDatabase(AbstractDatabase):
         parser.add_argument("output",nargs="+",help='output files for (members,departments) or emails')
         return parser
 
-    def init_parser_sync(self,subparsers):
-        parser = super(MemberDatabase,self).init_parser_sync(subparsers)
-        if self.export_invite:
-            parser.add_argument("-m","--mails",metavar='MAILS',
-                help='output file for unregistered members')
+    def init_parser_sync(self,subparsers,twopass=False):
+        parser = super(MemberDatabase,self).init_parser_sync(subparsers,twopass)
+        parser.add_argument("-m","--mails",metavar='MAILS', help='output file for unregistered members')
         return parser
 
     def load_geolut(self):
+        "load geo LUT from pickle file"
         import os, gzip, datetime
         from six.moves import cPickle
         geolut = {}
@@ -181,6 +197,7 @@ class MemberDatabase(AbstractDatabase):
             cPickle.dump(self.geolut, f, protocol=2)
 
     def gps_coord(self,address):
+        "lookup GPS coordinates for address in LUT, if necessary from Google"
         from pygeocode import geocoder
         import datetime
         if not address: return None
@@ -208,25 +225,26 @@ class MemberDatabase(AbstractDatabase):
         return coord
 
     def get_location(self,member):
+        "get the location field of a member"
         return member.location
 
     def set_location(self,member, location):
+        "set the location field of a member"
         member.location = location
 
     def get_department(self,member):
+        "get the department field of a member"
         if not self.department_table: return
         return member.department
 
-    def decode_department(self,member):
-        if not self.department_table: return
-        return member.department,member.parent,None,None # name,parent,id,depth
-
     def set_department(self,member,department):
+        "set the department field of a member"
         if not self.department_table: return
         member.department = department
 
     def check_member_func(self,member,check):
-        "default check function"
+        "default check function: compare with memberno"
+        assert 'memberno' in self.member_import, "memberno not supported"
         return member.memberno == int(check)
 
     def declare(self,reflect=True):
@@ -236,7 +254,8 @@ class MemberDatabase(AbstractDatabase):
         from ekklesia.data import init_object, repr_object
 
         def defdepth(ctx):
-            parent = ctx.current_parameters['parent']
+            "default depth: parent+1, without parent 0"
+            parent = ctx.current_parameters['parent_id']
             return parent.depth+1 if parent else 0
 
         depid = self.department_table+'.id'
@@ -248,9 +267,9 @@ class MemberDatabase(AbstractDatabase):
                 #depno = Column(Integer, Sequence('depno_seq',optional=True), unique=True,index=True)
                 parent_id = Column(Integer, ForeignKey(depid,name='parent_fk'), nullable=True)
                 name = Column(String(128))
-                depth = Column(Integer, nullable=True) #default=defdepth,
-            else:
-                __table__ = Table(self.department_table, self.Base.metadata)
+                depth = Column(Integer, nullable=True,default=defdepth)
+            else: # pragma: no cover
+                __table__ = Table(self.department_table, self.Base.metadata, autoload=True)
                 if 'departments' in self.column_map:
                     __mapper_args__ = {'include_properties' : list(self.column_map['departments'].keys()) }
             children = relationship("Department",backref=backref('parent',remote_side="Department.id"))
@@ -258,7 +277,12 @@ class MemberDatabase(AbstractDatabase):
             CheckConstraint('depth > parent.depth', name='depthcheck')
 
             def __init__(obj, **kwargs):
+                super(self.Base,obj).__init__()
+                obj.update(**kwargs)
+
+            def update(obj, **kwargs):
                 init_object(obj,**kwargs)
+
             def __repr__(obj):
                 return repr_object(obj,self.department_columns+['parent'])
 
@@ -267,25 +291,32 @@ class MemberDatabase(AbstractDatabase):
                 __tablename__ = self.member_table
                 uuid = Column(String(36), unique=True, index=True, primary_key=True)
                 email = Column(String(254), nullable=True, unique=True)
-                status = Column(StatusType.db_type(), nullable=False, default=StatusType.member)
+                status = Column(MStatusType.db_type(), nullable=False, default=MStatusType.member)
                 department_id = Column(Integer, ForeignKey(depid,name='department_fk'), nullable=False)
-                if 'verified' in self.member_import:
-                    verified = Column(Boolean, nullable=True) # null=uknown?.q->dont overwrite with sync
-                if 'memberno' in self.member_import:
-                    memberno = Column(Integer, unique=True, nullable=True)
                 if 'registered' in self.member_import:
                     registered = Column(DateTime, nullable=True)
+                if 'verified' in self.member_import:
+                    verified = Column(Boolean, nullable=True) # null=unknown?->don't overwrite with sync
+                if 'memberno' in self.member_import:
+                    memberno = Column(Integer, unique=True, nullable=True)
                 if 'birthday' in self.member_import:
                     birthday = Column(Date, nullable=True)
                 if 'location' in self.member_import:
-                    location = Column(String(254))
-            else:
-                __table__ = Table(self.member_table, self.Base.metadata)
+                    location = Column(String(254), nullable=True)
+            else: # pragma: no cover
+                __table__ = Table(self.member_table, self.Base.metadata,
+                    Column('status',MStatusType.db_type(), nullable=False, default=MStatusType.member),
+                    autoload=True)
                 if 'members' in self.column_map:
                     __mapper_args__ = {'include_properties' : list(self.column_map['members'].keys()) }
 
-            def __init__(member, **kwargs):
-                if 'location' in self.member_import:
+            def __init__(member, status=MStatusType.member, **kwargs):
+                super(self.Base,member).__init__()
+                kwargs['status'] = status
+                member.update(**kwargs)
+
+            def update(member, **kwargs):
+                if 'location' in self.member_import and 'location' in kwargs:
                     self.set_location(member,kwargs['location'])
                     del kwargs['location']
                 if not self.department_table and 'department' in kwargs:
@@ -317,26 +348,38 @@ class MemberDatabase(AbstractDatabase):
         self.member_types['department'] = deptype
         self.department_types['parent'] = deptype
 
+    def email_change(self,member,data):
+        "run when email of member changes"
+
+    def delete_member(self,member):
+        "run when member has been set to deleted status"
+
     def import_members(self,memberfile=None,depfile=None,decrypt=False,verify=False,
         dryrun=False,allfields=False,format='csv'):
-        from ekklesia.data import DataTable
+        """import data from memberfile, optionally depfile (if not implicit).
+        allfields is used for restore and requires all columns.
+        decrypt=with the default key, verify=check whether its signed with io_key.
+        """
+        from ekklesia.data import DataTable, init_object
         from sqlalchemy.orm import aliased
         session = self.session
-        import_dep = self.department_spec != 'implicit'
+        import_dep = self.department_spec != 'implicit' # extra Department data?
         Department = self.Department
         depprimary = 'id' if self.department_spec=='number' else 'name'
         dquery = session.query(Department)
+        if verify: verify = self.io_key
 
         def get_department(id,create=False):
             # root dep: name,parent=None,depth=0
             # fwd-ref: name,parent=None,depth=None
             dep = dquery.filter_by(**id).first()
             if not dep and create and not dryrun:
+                # create forward reference w/o depth, calculate it later
                 dep = Department(parent=None,depth=None,**id)
                 session.add(dep)
             return dep
 
-        if depfile and import_dep and self.Department:
+        if depfile and import_dep and self.Department: # import separate department data
             columns = self.department_columns + ['parent']
             if allfields: reqcolumns = columns
             else: reqcolumns = ('name','parent')
@@ -344,8 +387,8 @@ class MemberDatabase(AbstractDatabase):
                 dataformat='department',fileformat=format,version=self.version,gpg=self.gpg)
             count = 0
             reader.open(depfile,'r',encrypt=decrypt,sign=verify)
-            columns, tmp = reader.get_columns()
-            seen = set()
+            columns = reader.get_columns()[0]
+            seen = set() # detect duplicates
             for data in reader:
                 if not 'depth' in columns: data['depth']=None
                 # find existing parent by id, if not exist, create fwd-ref
@@ -372,9 +415,9 @@ class MemberDatabase(AbstractDatabase):
                 count += 1
                 if dryrun: continue
                 if not dep: session.add(Department(**data))
-                else: dep.__init__(**data)
+                else: dep.update(**data)
             self.info('%i imported departments', count)
-        elif not import_dep:
+        elif not import_dep: # implicit
             dquery.update(dict(depth=None)) # reset all depths
 
         Member = self.Member
@@ -382,20 +425,23 @@ class MemberDatabase(AbstractDatabase):
         if allfields: reqcolumns = columns
         else: reqcolumns = ['uuid','email']
         if not import_dep and 'department' in self.member_import and not 'parent' in columns:
+            # implicit requires parent
             columns.append('parent')
             reqcolumns.append('parent')
         reader = DataTable(columns,coltypes=self.member_types,required=reqcolumns,
             dataformat='member',fileformat=format,version=self.version,gpg=self.gpg)
         count = 0
         reader.open(memberfile,'r',encrypt=decrypt,sign=verify)
-        columns, tmp = reader.get_columns()
+        columns = reader.get_columns()[0]
         #primary either memberid or uuid
         #primary must exist for every member and be unique
         #primary+email must be unique
-        if 'memberno' in columns: primary, primarykey = 'memberno', Member.memberno
-        else: primary, primarykey = 'uuid', Member.uuid
-        mquery = session.query(primarykey)
-        seen, depseen = set(), set()
+        if 'memberno' in columns:
+            primary, primarykey = 'memberno', Member.memberno
+        else:
+            primary, primarykey = 'uuid', Member.uuid
+        mquery = session.query(Member)
+        seen, depseen = set(), set() # detect duplicates
         for data in reader:
             id = data[primary]
             if not id:
@@ -408,7 +454,8 @@ class MemberDatabase(AbstractDatabase):
                 if import_dep: # all departments must exist
                     dep = get_department({depprimary:depid})
                     assert dep, "unknown department %s" % depid
-                else: # create departments from department and parent
+                else: # implicit departments
+                    # create departments from department and parent
                     # find existing parent by id, if not exist, create fwd-ref
                     parent = data['parent']
                     del data['parent']
@@ -429,42 +476,57 @@ class MemberDatabase(AbstractDatabase):
                             session.add(dep)
                         elif dep.parent != parent: # if parent changed and not seen, update
                             assert not depid in depseen, "department %s is duplicate" % depid
-                            dep.__init__(parent=parent)
+                            dep.update(parent=parent)
                 data['department'] = dep
-            if 'email' in columns and not data['email']: data['email']=None
+            if 'email' in columns and not data['email']:
+                data['email'] = None # ensure it's None
+            # find existing member
             member = mquery.filter_by(**{primary:id}).first()
-            if data['email']:
-                email = session.query(primarykey,Member.email).\
-                    filter_by(email=data['email']).first()
-            else: email = None
-            if email and (not member or getattr(email,primary) != getattr(member,primary)):
-                self.error("ignoring: duplicate email %s" % data['email'])
-                continue
+            if data['email'] and not (member and member.email==data['email']):
+                # email already used by other member?
+                if session.query(primarykey,Member.email).filter_by(email=data['email']).first():
+                    self.error("ignoring: duplicate email %s" % data['email'])
+                    continue
             count += 1
             if dryrun: continue
-            if member: member.__init__(**data)
+            if member:
+                if member.email != data['email']:
+                    self.email_change(member,data)
+                member.update(**data)
+                if data.get('status') == 'deleted':
+                    self.delete_member(member)
             else: session.add(Member(**data)) #new
         self.info('%i imported members', count)
         # complete missing depths
         depalias = aliased(Department)
         fixdeps = session.query(Department.depth).filter_by(depth=None)
-        if fixdeps.first():
+        if fixdeps.first(): # any departments with missing depths?
             fixdeps.filter_by(parent=None).update(dict(depth=0)) # set roots
-            while fixdeps.first():
+            while fixdeps.first(): # fill from roots to leafs
                 for sub in session.query(Department).join(depalias,Department.parent).\
-                    filter(depalias.depth!=None):
+                    filter(depalias.depth!=None).yield_per(1000):
                     sub.depth = sub.parent.depth+1
         if not dryrun: session.commit()
 
     def export_members(self,output,encrypt=None,sign=False,allfields=False,format='csv'):
+        """export data, sorted by primary (uuid, unless memberno exists), to output.
+        allfields is used for backup and writes all columns.
+        without allfields, data for the invitation DB is generated.
+        output is [members,departments] if allfields, else just [members].
+        encrypt=to io_key, sign=with default key.
+        """
         from ekklesia.data import DataTable
         session = self.session
         Department, Member = self.Department, self.Member
-        if allfields: columns = self.member_columns+['department']
-        else: columns = ('uuid','email')
+        if allfields:
+            columns = self.member_columns+['department']
+            dataformat = 'member'
+        else:
+            columns = ('uuid','email')
+            dataformat = 'invitation'
         writer = DataTable(columns,coltypes=self.member_types,gpg=self.gpg,
-            dataformat='member',fileformat=format,version=self.version)
-        if encrypt: encrypt = [encrypt]
+            dataformat=dataformat,fileformat=format,version=self.version)
+        if encrypt: encrypt = [self.io_key]
         writer.open(output[0],'w',encrypt=encrypt,sign=sign)
         count = 0
         if allfields:
@@ -472,8 +534,8 @@ class MemberDatabase(AbstractDatabase):
         else:
             query = session.query(Member.uuid,Member.email).filter(Member.email!=None).order_by(Member.uuid)
         extra = {}
-        for member in query:
-            if allfields and member.department:
+        for member in query.yield_per(1000):
+            if allfields and member.department: # FIXME: use get_department?
                 depid = member.department.id if self.department_spec=='number' else member.department.name
                 extra = dict(department=depid)
             writer.write(member,extra)
@@ -486,7 +548,7 @@ class MemberDatabase(AbstractDatabase):
             dataformat='department',fileformat=format,version=self.version)
         dwriter.open(output[1],'w',encrypt=encrypt,sign=sign)
         count = 0
-        for dep in session.query(Department).order_by(Department.depth,Department.id):
+        for dep in session.query(Department).order_by(Department.depth,Department.id).yield_per(1000):
             if dep.parent:
                 extra = dict(parent=dep.parent.id if self.department_spec=='number' else dep.parent.name)
             else: extra = {}
@@ -495,13 +557,13 @@ class MemberDatabase(AbstractDatabase):
         dwriter.close()
         self.info('%i exported departments', count)
 
-    def sync_members(self,download=True,upload=True,dryrun=False,
+    def sync_members(self,download=True,upload=True,dryrun=False,quick=False,
             input=None,output=None,invitations=None,format='csv'):
-        # format for emails and invitations export
+        "sync members with ID server"
         from ekklesia.data import DataTable
         from ekklesia.backends import api_init
         from six.moves import cStringIO as StringIO
-        import requests, datetime, json
+        import requests, json
         session = self.session
         Department, Member = self.Department, self.Member
         check_email = self.check_email
@@ -510,16 +572,24 @@ class MemberDatabase(AbstractDatabase):
         api = api_init(self.member_api._asdict())
         if download: # download registered uuids
             if input: input = json.load(input)
-            else:
-                resp = api.get(self.member_api.url)
-                assert resp.status_code == requests.codes.ok, 'cannot download used uuids'
+            else: # pragma: no cover
+                url = self.member_api.url
+                if quick: url+'?new=1'
+                resp = api.get(url)
+                if resp.status_code != requests.codes.ok:
+                    if self.debugging: open('memberdown.html','w').write(resp.content)
+                    assert False, 'cannot download used uuids'
                 input = resp.json()
+            if not input:
+                self.warn("input is empty")
+                return
             columns = ['uuid','echo']
             if check_member: columns.append(check_member)
             if check_email: columns.append(check_email)
             reader = DataTable(columns,required=['uuid'],coltypes=coltypes,gpg=self.gpg,
                 dataformat='member',fileformat=self.member_api.format,version=self.version)
-            reader.open(input,'r',encrypt=self.member_api.encrypt,sign=self.member_api.receiver)
+            sign = self.member_api.receiver if self.member_api.sign else False
+            reader.open(input,'r',encrypt=self.member_api.encrypt,sign=sign)
         columns = list(self.member_sync)
         wcoltypes = dict(coltypes)
         if check_member: wcoltypes[check_member] = bool
@@ -541,7 +611,7 @@ class MemberDatabase(AbstractDatabase):
         out = {}
         writer.open(out,'w',encrypt=encrypt,sign=self.member_api.sign)
 
-        if self.export_emails:
+        if not quick and self.export_emails:
             ewriter = DataTable(('uuid','email'),coltypes=coltypes,gpg=self.gpg,
                 dataformat='member',fileformat=format,version=self.version)
             eout = output[2] if output else StringIO()
@@ -553,9 +623,9 @@ class MemberDatabase(AbstractDatabase):
                 if gps: extra['gpslat'],extra['gpslng'] = gps
             dep = self.get_department(member)
             if dep:
-                extra['department'] = dep.id if self.department_spec=='number' else dep.name
+                extra['department'] = dep.id #if self.department_spec=='number' else dep.name
             writer.write(member,extra)
-            if self.export_emails: ewriter.write(member)
+            if not quick and self.export_emails: ewriter.write(member)
 
         if invitations: registered = {} # dict of registered uuids
 
@@ -563,6 +633,7 @@ class MemberDatabase(AbstractDatabase):
         count = 0
         check_memberno = 'memberno' in self.member_columns
         if download:
+            from datetime import datetime
             seen = set()
             for data in reader:
                 uuid = data['uuid']
@@ -581,7 +652,7 @@ class MemberDatabase(AbstractDatabase):
                         extra[check_member] = False
                     if check_email in columns and data[check_email]:
                         extra[check_email] = False
-                    writer.write(Member(uuid=uuid,status=StatusType.deleted),extra)
+                    writer.write(Member(uuid=uuid,status=MStatusType.deleted),extra)
                     continue
                 if check_email in columns and data[check_email]:
                     extra[check_email] = member.email == data[check_email]
@@ -590,15 +661,20 @@ class MemberDatabase(AbstractDatabase):
                         result = self.check_member_func(member,data[check_member])
                         if 'registered' in self.member_import:
                             if result and not member.registered:
-                                member.registered = datetime.datetime.utcnow()
-                    else: result = None
+                                member.registered = datetime.utcnow()
+                    else:
+                        if 'registered' in self.member_import and member.registered:
+                            self.warn("member %s is already registered" % uuid)
+                        result = None
                     extra[check_member] = result
+                elif 'registered' in self.member_import and not member.registered:
+                    member.registered = datetime.utcnow()
                 if 'echo' in columns: extra['echo'] = data['echo']
                 if not dryrun: export(member,extra)
                 if invitations: registered[member.uuid] = True
                 count += 1
         else:
-            for member in mquery:
+            for member in mquery.yield_per(1000):
                 if check_memberno and not member.memberno: continue # deleted
                 if not dryrun: export(member)
                 count += 1
@@ -606,9 +682,9 @@ class MemberDatabase(AbstractDatabase):
         if not dryrun and 'registered' in self.member_import: session.commit()
 
         writer.close()
-        if self.export_emails: ewriter.close()
+        if not quick and self.export_emails: ewriter.close()
 
-        if invitations:
+        if not quick and invitations:
             iwriter = DataTable(('uuid','email'),coltypes=coltypes,gpg=self.gpg,
                 dataformat='member',fileformat=format,version=self.version)
             # extra encrypt,sign
@@ -619,7 +695,7 @@ class MemberDatabase(AbstractDatabase):
             else:
                 query = session.query(Member.uuid,Member.email).filter(Member.email!=None)
             count = 0
-            for member in query:
+            for member in query.yield_per(1000):
                 if member.uuid in registered: continue # skip registered
                 iwriter.write(member)
                 count += 1
@@ -632,9 +708,10 @@ class MemberDatabase(AbstractDatabase):
             dataformat='department',fileformat=self.member_api.format,version=self.version)
         dout = {}
         dwriter.open(dout,'w',encrypt=encrypt,sign=self.member_api.sign)
-        for dep in session.query(Department).order_by(Department.depth,Department.id):
+        for dep in session.query(Department).order_by(Department.depth,Department.id).yield_per(1000):
             if dep.parent:
-                extra = dict(parent=dep.parent.id if self.department_spec=='number' else dep.parent.name)
+                extra = dict(parent=dep.parent.id)
+                # if self.department_spec=='number' else dep.parent.name
             else: extra = {}
             dwriter.write(dep,extra)
         dwriter.close()
@@ -642,12 +719,15 @@ class MemberDatabase(AbstractDatabase):
         if output:
             json.dump(out,output[0])
             json.dump(dout,output[1])
-        elif not dryrun:
-            r = api.post(self.member_api.url,json=dict(members=out,departments=dout))
-            assert r.status_code == requests.codes.ok, 'cannot upload data'
+        elif not dryrun: # pragma: no cover
+            resp = api.post(self.member_api.url,json=dict(members=out,departments=dout))
+            if resp.status_code != requests.codes.ok:
+                if self.debugging: open('memberup.html','w').write(resp.content)
+                assert False, 'cannot upload data'
 
-        if not self.export_emails or output: return
+        if not self.export_emails or output or quick: return
 
+        # pragma: no cover
         from ekklesia.mail import create_mail, smtp_init
         smtp = smtp_init(self.smtpconfig)
         smtp.open()
@@ -659,76 +739,125 @@ class MemberDatabase(AbstractDatabase):
         if not dryrun: smtp.send(msg)
         smtp.close()
 
-    def run(self, args=None): # pragma: no cover
-        from ekklesia.data import special_openwith, special_open
-        args, engine, parser = self.init_run('members','synchronization of member databases',args)
+    def process_update(self,msg,input=None,output=None):
+        "process update valid messages with registering status for unregistered members"
+        self.info('got update %s',msg)
+        version = msg.get('version')
+        if not (msg and msg.get('format')=='member' and len(version)==2):
+            self.warn('invalid message')
+            return False
+        if version[0]!=1:
+            self.warn('invalid message version %s', version)
+            return False
+        status, uuids = msg.get('status'), msg.get('uuid')
+        if not (status and uuids):
+            self.warn('invalid status %s or uuid %s', status, uuids)
+            return False
+        if status!='registering':
+            self.debug('ignoring status %s', status)
+            return False
+        if 'registered' in self.member_import:
+            if not isinstance(uuids,list): uuids = [uuids]
+            query = self.session.query(self.Member)
+            found = False
+            for uuid in uuids:
+                member = query.filter_by(uuid=uuid).first()
+                if not member:
+                    self.warn('uuid not found %s', uuid)
+                elif member.registered:
+                    self.warn('uuid already registered %s', uuid)
+                else: found = True
+            if not found: return False
+        self.sync_members(self,quick=True,input=input,output=output)
+        return True
+
+    def run_import_members(self, args): # pragma: no cover
+        from ekklesia.data import special_open
+        if args.dryrun: self.info('simulating import')
+        maxargs = 1 if self.department_spec=='implicit' else 2
+        assert len(args.input) <= maxargs, "invalid number of input arguments"
+        input = [special_open(file,'r') for file in args.input]
+        if len(input)==1: input.append(None)
+        self.import_members(memberfile=input[0],depfile=input[1],
+                decrypt=args.decrypt,verify=args.verify,
+                dryrun=args.dryrun,allfields=args.all)
+
+    def run_export_members(self, args): # pragma: no cover
+        from ekklesia.data import special_open
+        assert len(args.output) == 2 if args.all else 1, "invalid number of output arguments"
+        output = [special_open(file,'w') for file in args.output]
+        assert not args.encrypt or self.gpg, "GnuPG not available"
+        self.export_members(output,encrypt=args.encrypt,sign=args.sign,allfields=args.all)
+
+    def run_push_members(self, args): # pragma: no cover
+        if not args.daemon:
+            import signal
+            signal.signal(signal.SIGHUP, self.terminate)
+            signal.signal(signal.SIGINT, self.terminate)
+        assert not self.member_api.sign or self.gpgconfig['sender'], 'sender for signing missing'
+        if args.dryrun: self.info('simulating push')
+        if 'location' in self.member_import: self.load_geolut()
+        self.push_sync(upload=args.upload,delay=args.wait,dryrun=args.dryrun)
+
+    def run_sync_members(self, args): # pragma: no cover
+        from ekklesia.data import special_open
+        assert not self.member_api.sign or self.gpgconfig['sender'], 'sender for signing missing'
+        if args.output:
+            assert len(args.output) == 2+self.export_emails, "invalid number of output arguments"
+        if args.dryrun: self.info('simulating sync')
         try:
+            if 'location' in self.member_import: self.load_geolut()
+            input = special_open(args.input,'r') if args.input else None
+            if args.output: output = [special_open(file,'w') for file in args.output]
+            else: output = None
+            if self.export_invite and args.mails: invitations = special_open(args.mails,'w')
+            else: invitations = None
+            self.sync_members(download=args.download,upload=args.upload,quick=args.quick,
+                input=input,output=output,dryrun=args.dryrun,invitations=invitations)
+        finally:
+            if 'location' in self.member_import: self.save_geolut()
+
+    def run(self, args=None): # pragma: no cover
+        from ekklesia.data import special_openwith
+        from ekklesia.backends import api_spec, dummy_context, session_context
+        from ekklesia.mail import gpg_spec, smtp_spec
+        from sqlalchemy import create_engine
+        import contextlib
+
+        args, parser = self.init_run('members','synchronization of member databases',args)
+        spec = members_spec+gpg_spec+smtp_spec+api_spec('member_api')
+        config = self.get_configuration(spec,args,'members.ini')
+        self.configure(config=config['members'],gpgconfig=config['gnupg'],
+            apiconfig=config['member_api'],smtpconfig=config['smtp'])
+        self.init_gnupg()
+        if args.command=='push' and args.daemon:
+            daemon = self.prepare_daemon(args.pid)
+        else: daemon = dummy_context()
+        with daemon, session_context(self):
+            engine = create_engine(self.database,echo=False) #, echo=self.debugging
             if args.command == 'init':
                 self.open_db(engine,mode='create')
                 self.info('database intialized')
                 if args.initial:
-                    with special_openwith(args.initial, 'r') as f:
-                        self.import_members(f,allfields=True)
+                    args.input = args.initial
+                    args.decrypt = args.verify = args.all = False
+                    self.run_import_members(args)
                 return
             elif args.command == 'drop':
                 self.info('deleting database')
-                self.open_db(engine,mode='drop')
+                self.open_db(engine,mode='dropall' if args.all else 'drop')
                 return
             self.open_db(engine,mode='open')
-        finally:
-            if self.session: self.session.close()
-        try:
             if args.command == 'import':
-                if args.dryrun: self.info('simulating import')
-                maxargs = 1 if self.department_spec=='implicit' else 2
-                assert len(args.input) <= maxargs, "invalid number of input arguments"
-                input = [special_open(file,'r') for file in args.input]
-                if len(input)==1: input.append(None)
-                self.import_members(memberfile=input[0],depfile=input[1],
-                        decrypt=args.decrypt,verify=args.verify,
-                        dryrun=args.dryrun,allfields=args.all)
+                self.run_import_members(args)
             elif args.command == 'export':
-                assert len(args.output) == 2 if args.all else 1, "invalid number of output arguments"
-                output = [special_open(file,'w') for file in args.output]
-                if args.encrypt:
-                    assert self.gpg, "GnuPG not available"
-                    encrypt = self.email_receiver if args.all else self.gpgconfig['sender'] #self
-                else: encrypt = None
-                self.export_members(output,encrypt=encrypt,sign=args.sign,allfields=args.all)
+                self.run_export_members(args)
+            elif args.command == 'push':
+                self.run_push_members(args)
             elif args.command == 'sync':
-                assert not self.member_api.sign or self.gpgconfig['sender'], 'sender for signing missing'
-                if args.output:
-                    assert len(args.output) == 2+self.export_emails, "invalid number of output arguments"
-                if args.dryrun: self.info('simulating sync')
-                try:
-                    if 'location' in self.member_import: self.load_geolut()
-                    input = special_open(args.input,'r') if args.input else None
-                    if args.output: output = [special_open(file,'w') for file in args.output]
-                    else: output = None
-                    if self.export_invite and args.mails: invitations = special_open(args.mails,'w')
-                    else: invitations = None
-                    self.sync_members(download=args.download,upload=args.upload,
-                        input=input,output=output,dryrun=args.dryrun,invitations=invitations)
-                finally:
-                    if 'location' in self.member_import: self.save_geolut()
-        except:
-            self.exception('')
-        finally:
-            self.session.close()
+                self.run_sync_members(args)
 
 def main_func(): # pragma: no cover
-    from ekklesia.backends import api_spec
-    from ekklesia.mail import gpg_spec, smtp_spec
-    import os, configobj, validate
-
-    spec = members_spec+gpg_spec+smtp_spec+api_spec
-    config = configobj.ConfigObj('members.ini', configspec=spec.split('\n'),encoding='UTF8')
-    config.validate(validate.Validator())
-    if not config['gnupg']['home']:
-        config['gnupg']['home'] = os.path.join(os.getenv('HOME'),'.gnupg')
-    else:
-        config['gnupg']['home'] = os.path.expanduser(config['gnupg']['home'])
-    MemberDatabase(config=config['members'],gpgconfig=config['gnupg'],
-        apiconfig=config['api'],smtpconfig=config['smtp']).run()
+    MemberDatabase().run()
 
 if __name__ == "__main__": main_func()

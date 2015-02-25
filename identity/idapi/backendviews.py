@@ -56,7 +56,7 @@ def api_crypto(api):
     encrypt = [receiver] if receiver else False
     return crypto, receiver, decrypt, bool(sender), encrypt
 
-def get_members(crypto=True):
+def get_members(onlynew=False,crypto=True):
     from ekklesia.data import DataTable
     from accounts.models import Account, Invitation
     if crypto:
@@ -70,8 +70,10 @@ def get_members(crypto=True):
         dataformat='member',fileformat='json',version=[1,0])
     writer.open(mode='w',encrypt=encrypt,sign=sign)
     members = Account.objects.exclude(uuid=None)
+    stati = (Account.NEWMEMBER,)
+    if not onlynew: stati += (Account.MEMBER,Account.ELIGIBLE)
     members = members.filter(email_unconfirmed=None, # only confirmed emails
-         status__in=(Account.MEMBER,Account.ELIGIBLE,Account.NEWMEMBER))
+         status__in=stati)
     for member in members.values('uuid','status'):
         if twofactor:
             if member['status'] == Account.NEWMEMBER:
@@ -156,6 +158,7 @@ def update_members(members,departments,crypto=True):
             obj.save()
         deps = todo
 
+    reg_uuids, fail_uuids = [], []
     for member in data:
         uuid = member['uuid']
         try: obj = Account.objects.get(uuid=uuid)
@@ -172,13 +175,18 @@ def update_members(members,departments,crypto=True):
                 inv.delete()
                 continue
             # check whether activation failed or to be deleted
-            if twofactor and member['activate'] != True:
-                inv.status = Invitation.FAILED
-                inv.save()
-                obj.delete()
-                continue
+            if twofactor:
+                if member['activate'] != True:
+                    inv.status = Invitation.FAILED
+                    inv.save()
+                    obj.delete()
+                    fail_uuids.append(uuid)
+                    continue
+                del member['activate']
             inv.status = Invitation.REGISTERED
             inv.save()
+            member['is_active'] = True
+            reg_uuids.append(uuid)
         if 'department' in member:
             dep = member['department']
             del member['department']
@@ -193,6 +201,11 @@ def update_members(members,departments,crypto=True):
 
     for syncid in deldeps:
         NestedGroup.objects.get(syncid=syncid).delete()
+    from accounts.models import notify_backends
+    if reg_uuids:
+        notify_backends(status='registered',uuid=reg_uuids)
+    if fail_uuids:
+        notify_backends(status='failed',uuid=fail_uuids)
     return 'ok'
 
 class MembersView(APIView):
@@ -201,15 +214,19 @@ class MembersView(APIView):
     parser_classes = (JSONParser,)
 
     def get(self, request, format=None):
-        return Response(get_members())
+        onlynew = bool(request.GET.get('new',False))
+        members = get_members(onlynew=onlynew)
+        #print ('membersdown',members)
+        return Response(members)
 
     def post(self, request, format=None):
         members = request.DATA['members']
         departments = request.DATA['departments']
+        #print ('membersup',members)
         ok = update_members(members,departments)
         return Response({'status': ok})
 
-def get_invitations(crypto=True):
+def get_invitations(onlychanged=False,crypto=True):
     from ekklesia.data import DataTable
     from idapi.mails import gnupg_init
     from accounts.models import Invitation
@@ -222,10 +239,12 @@ def get_invitations(crypto=True):
     writer.open(mode='w',encrypt=encrypt,sign=sign)
     count = 0
     invs = Invitation.objects.exclude(status=Invitation.DELETED)
-    stati = {Invitation.REGISTERED:'registered',Invitation.REGISTERING:'new',
-        Invitation.FAILED:'failed',Invitation.NEW:'new'}
+    stati = {Invitation.REGISTERED:'registered',Invitation.FAILED:'failed'}
+    if not onlychanged:
+        stati.update({Invitation.REGISTERING:'new',Invitation.NEW:'new'})
     for inv in invs.values('uuid','status'):
-        inv['status'] = stati[inv['status']]
+        try: inv['status'] = stati[inv['status']]
+        except KeyError: continue # ignore status
         writer.write(inv)
         count += 1
     return writer.close()
@@ -235,14 +254,10 @@ def update_invitations(invitations,crypto=True):
     from idapi.mails import gnupg_import_init
     from accounts.models import Account, Invitation
     import six
-    delete_implicit = getattr(settings, 'INVITATIONS_DELETE_IMPLICT', False)
     if crypto:
         gpg, verify, decrypt, sign, encrypt = api_crypto('invitations')
         if crypto==True: crypto = gpg # not debug
     else: verify = decrypt = sign = encrypt = False
-    if delete_implicit:
-        delinvs = set(Invitation.objects.values_list('uuid',flat=True))
-    else: delinvs = []
     reader = DataTable(['uuid','status','code'],gpg=crypto,
         dataformat='invitation',fileformat='json',version=[1,0])
     reader.open(invitations,'r',encrypt=decrypt,sign=verify)
@@ -259,7 +274,6 @@ def update_invitations(invitations,crypto=True):
 
     for inv in data:
         uuid = inv['uuid']
-        if delete_implicit: delinvs.discard(uuid)
         try: obj = Invitation.objects.get(uuid=uuid)
         except Invitation.DoesNotExist:
             if inv['status']==Invitation.NEW: Invitation.objects.create(**inv)
@@ -270,9 +284,6 @@ def update_invitations(invitations,crypto=True):
         for k,v in six.iteritems(inv): setattr(obj,k,v)
         if obj.has_changed: obj.save()
 
-    for uuid in delinvs:
-        Invitation.objects.get(uuid=uuid).delete()
-
     return 'ok'
 
 class InvitationsView(APIView):
@@ -281,11 +292,15 @@ class InvitationsView(APIView):
     parser_classes = (JSONParser,)
 
     def get(self, request, format=None):
-        invitations = get_invitations()
+        onlychanged = bool(request.GET.get('changed',False))
+        invitations = get_invitations(onlychanged=onlychanged)
+        #print ('invdown',invitations)
         return Response(invitations)
 
     def post(self, request, format=None):
-        ok = update_invitations(request.DATA)
+        invitations = request.DATA
+        #print ('invup',invitations)
+        ok = update_invitations(invitations)
         return Response({'status': ok})
 
 class KeysView(APIView):

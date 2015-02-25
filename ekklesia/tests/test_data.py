@@ -44,10 +44,10 @@ def test_object():
     assert not objects_equal(x,y)
     assert not objects_equal(x,y,('a','c'))
     assert objects_equal(x,y,('a','b'))
-    assert repr_object(x,('a','b','c'))=='Sample(1,2,3)'
+    assert repr_object(x,('a','b','c'))=='Sample(a=1,b=2,c=3)'
     init_object(x,a=11,c=33)
     assert x.a==11 and x.c==33
-    assert repr_object(x,('a','b','c'))=='Sample(11,2,33)'
+    assert repr_object(x,('a','b','c'))=='Sample(a=11,b=2,c=33)'
     assert extract_object(x,('a','b'))=={'a':11,'b':2}
     assert extract_object(x,('a','b'),{'a':1,'c':3})=={'a':1,'b':2}
 

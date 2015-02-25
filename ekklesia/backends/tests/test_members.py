@@ -57,21 +57,22 @@ memberno,uuid,entitled,verified,email,department,parent,address
 """
 
 
-import os
-from ekklesia.backends.members import MemberDatabase, main_func
+import os, copy
+from ekklesia.backends.members import MemberDatabase
+from ekklesia.backends.joint import MemberInvDatabase
 from pytest import fixture, raises, mark
 from ekklesia.tests.conftest import pytest_addoption, sender, receiver, third, keys, bilateral
 import json
 from sqlalchemy import create_engine
 from six.moves import cStringIO as StringIO
 
-def test_main():
-    #with raises(SystemExit):
-    MemberDatabase().run(['init'])
-
 class MyMemberDatabase(MemberDatabase):
     def check_member_func(self,member,check):
-        return member.uuid=='uid2' and check=='password'
+        return member.uuid in ('uid1','uid2') and check=='password'
+
+class MyMemberInvDatabase(MemberInvDatabase):
+    def check_member_func(self,member,check):
+        return member.uuid in ('uid1','uid2') and check=='password'
 
 deps_name = """department,1.0
 name,parent,depth
@@ -146,49 +147,77 @@ def check_objs(db,deps=None,members=None,spec='name'):
         tmem = qmem.filter_by(uuid=mem.uuid,email=mem.email,status=mem.status,verified=mem.verified).one()
         assert mem.department.name == tmem.department.name
 
-def setup_db(configs):
-    db = MyMemberDatabase(**configs)
-    db.debugging = False
-    #db.setlogger('member','debug')
-    engine = create_engine(db.database,echo=db.debugging)
+current_db = None # ugly workaround for pytest bug (finalizer not called immeditely)
+
+def setup_db(dbtype=MyMemberDatabase,engine=None,depspec='name',reflect=True,**configs):
+    import logging
+    global current_db
+    if current_db: current_db.drop_db()
+    config = dict(department_spec=depspec,check_member='register',
+            export_emails=True, email_receiver=receiver, io_key=receiver,
+            member_import=('id','uuid','email','status','verified','department','registered'))
+    db = dbtype().configure(config=config,gpgconfig=dict(sender=sender),**configs)
+    db.setlogger('member','warning')
+    log = logging.getLogger('sqlalchemy')
+    log.setLevel(logging.WARNING)
+    if not engine:
+        engine = create_engine(db.database,echo=db.debugging)
+    db.open_db(engine,mode='dropall')
     db.open_db(engine,mode='create')
+    if reflect: db.open_db(engine,mode='open') # and reflect
+    current_db = db
     return db
 
-def_config = dict(department_spec='name',check_member='register',export_emails=True,
-    member_import=('id','uuid','email','status','verified','department','registered'))
+def stop_db(db,engine=None):
+    global current_db
+    if current_db!=db:
+        print 'already finalized', db
+        return
+    db.drop_db()
+    db.stoplogger()
+    db.session.close()
+    current_db = None
 
-@fixture #(scope='session')
-def empty_db(request,monkeypatch):
-    db = setup_db(dict(config=def_config))
+@fixture(scope='module')
+def dbconnection(request):
+    from sqlalchemy import create_engine
+    db = request.config.getoption('db',None)
+    if not db: return None
+    return create_engine(db,echo=False)
+
+@fixture(params=[MyMemberDatabase,MyMemberInvDatabase],scope='module')
+def dbsession(dbconnection, request):
+    engine = dbconnection
+    db = setup_db(request.param,engine=engine)
+    request.addfinalizer(lambda: stop_db(db,engine))
+    #db.session.commit = db.session.flush
+    return db
+
+@fixture
+def empty_db(dbsession,request,monkeypatch):
     # Roll back at the end of every test
-    request.addfinalizer(db.session.rollback)
-    #request.addfinalizer(db.session.close)
-    # Prevent the session from closing (make it a no-op) and
-    # committing (redirect to flush() instead)
-    monkeypatch.setattr(db.session, 'commit', db.session.flush)
-    #monkeypatch.setattr(member_db.session, 'remove', lambda: None)
-    return db
+    monkeypatch.setattr(dbsession.session, 'commit', dbsession.session.flush)
+    request.addfinalizer(dbsession.session.rollback)
+    return dbsession
 
-@fixture #(scope='session')
-def member_db(request, empty_db):
+@fixture
+def member_db(empty_db):
     db = empty_db
     deps = gen_departments(db,'number')
     members = gen_members(db,deps,'name')
     db.session.add_all(list(deps.values())+list(members))
-    #db.session.flush()
-    #db.session.expunge_all()
-    #db.session.commit()
     return db
 
-@mark.parametrize("spec", ["name","number","implicit"])
-def test_import(request,spec): #keys
-    db = MemberDatabase(config=dict(department_spec=spec))
-    db.debugging = False
-    #db.gpgbackend = keys['gpg1']
-    #db.gpg = GPGMIME(keys['gpg1'],default_key=(sender,passphrase))
-    db.setlogger('member','debug')
-    engine = create_engine(db.database,echo=db.debugging)
-    db.open_db(engine,mode='create')
+@fixture(params=["name","number","implicit"],scope='module')
+def depspec_db(dbconnection,request):
+    spec = request.param
+    db = setup_db(depspec=spec,engine=dbconnection)
+    request.addfinalizer(lambda: stop_db(db,dbconnection))
+    db.session.commit = db.session.flush
+    return db, spec
+
+def test_import(depspec_db):
+    db, spec = depspec_db
     if spec=='implicit':
         depfile = None
         memfile = StringIO(members_implict)
@@ -200,17 +229,22 @@ def test_import(request,spec): #keys
         memfile = StringIO(members_number)
     db.import_members(memberfile=memfile,depfile=depfile)
     check_objs(db,spec=spec)
-    #db.session.flush()
-    #db.session.expunge_all()
-    db.session.commit()
-    db.session.close()
+    db.session.rollback()
 
-def notest_reopen(member_db):
-    db = member_db
-    engine = db.session.get_bind()
-    db.session.close()
-    db.open_db(engine,mode='open')
+@fixture(params=[MyMemberDatabase,MyMemberInvDatabase],scope='module')
+def noreflect_db(dbconnection,request):
+    db = setup_db(request.param,reflect=False,engine=dbconnection)
+    request.addfinalizer(lambda: stop_db(db,dbconnection))
+    db.session.commit = db.session.flush
+    return db
+
+def test_import_init(noreflect_db):
+    db = noreflect_db
+    depfile = StringIO(deps_name)
+    memfile = StringIO(members_name)
+    db.import_members(memberfile=memfile,depfile=depfile)
     check_objs(db)
+    db.session.rollback()
 
 def test_reimport(member_db):
     depfile = StringIO(deps_name)
@@ -262,7 +296,7 @@ def test_import_dupmem(empty_db):
     with raises(AssertionError):
         empty_db.import_members(memberfile=memfile,depfile=depfile)
 
-deps_circle = """department,1.0
+deps_cycle = """department,1.0
 name,parent,depth
 root,subsub,
 subsub,sub,
@@ -271,9 +305,9 @@ sub2,,
 sub3,root,
 """
 
-def test_import_circle(empty_db):
+def test_import_cycle(empty_db):
     memfile = StringIO(members_name)
-    depfile = StringIO(deps_circle)
+    depfile = StringIO(deps_cycle)
     with raises(AssertionError):
         empty_db.import_members(memberfile=memfile,depfile=depfile)
 
@@ -296,11 +330,11 @@ def test_import_depths(empty_db):
     check_objs(db,deps,members)
 
 members_export = """member,1.0
-uuid,email,status,verified,registered,department
-uid1,bar@localhost,member,False,,sub
-uid2,fnord@localhost,eligible,True,,subsub
-uid3,verify@localhost,eligible,True,,sub2
-uid4,other@localhost,member,True,,subsub
+uuid,email,status,registered,verified,department
+uid1,bar@localhost,member,,False,sub
+uid2,fnord@localhost,eligible,,True,subsub
+uid3,verify@localhost,eligible,,True,sub2
+uid4,other@localhost,member,,True,subsub
 """
 
 deps_export = """department,1.0
@@ -322,7 +356,7 @@ def test_export(member_db):
 def test_export_inv(member_db):
     memfile = StringIO()
     member_db.export_members([memfile],allfields=False,format='csv')
-    assert memfile.getvalue()=="""member,1.0
+    assert memfile.getvalue()=="""invitation,1.0
 uuid,email
 uid1,bar@localhost
 uid2,fnord@localhost
@@ -330,7 +364,7 @@ uid3,verify@localhost
 uid4,other@localhost
 """
 
-deps_dict = {'format': 'department', 'version': [1, 0],
+deps_dictname = {'format': 'department', 'version': [1, 0],
         'fields': ['id', 'name', 'parent', 'depth'],
         'data': [[1, 'root', None, 0],
             [3, 'sub', 'root', 1],
@@ -346,20 +380,20 @@ def test_export_json(member_db):
     members = json.loads(memfile.getvalue())
     deps = json.loads(depfile.getvalue())
     assert members == {'format': 'member', 'version': [1, 0],
-        'fields': ['uuid', 'email', 'status', 'verified', 'registered', 'department'], 
-        'data': [['uid1', 'bar@localhost', 'member', False, None, 'sub'],
-            ['uid2', 'fnord@localhost', 'eligible', True, None, 'subsub'],
-            ['uid3', 'verify@localhost', 'eligible', True, None, 'sub2'],
-            ['uid4', 'other@localhost', 'member', True, None, 'subsub']]
+        'fields': ['uuid', 'email', 'status', 'registered', 'verified', 'department'],
+        'data': [['uid1', 'bar@localhost', 'member', None, False, 'sub'],
+            ['uid2', 'fnord@localhost', 'eligible', None, True, 'subsub'],
+            ['uid3', 'verify@localhost', 'eligible', None, True, 'sub2'],
+            ['uid4', 'other@localhost', 'member', None, True, 'subsub']]
     }
-    assert deps == deps_dict
+    assert deps == deps_dictname
 
 def test_export_crypt(member_db,bilateral):
     #member_db.gpgbackend = bilateral['gpg1']
     member_db.gpg = bilateral['id1']
     memfile = StringIO()
     depfile = StringIO()
-    member_db.export_members([memfile,depfile],allfields=True,encrypt=receiver,sign=True,format='csv')
+    member_db.export_members([memfile,depfile],allfields=True,encrypt=True,sign=True,format='csv')
     id2 = bilateral['id2']
     result = id2.decrypt_str(memfile.getvalue())
     assert result.ok and result.valid
@@ -370,7 +404,7 @@ def test_export_crypt(member_db,bilateral):
     deps = str(result)
     assert deps==deps_export
 
-deps_dictnum = {'format': 'department', 'version': [1, 0],
+deps_dict = {'format': 'department', 'version': [1, 0],
         'fields': ['id', 'name', 'parent', 'depth'],
         'data': [[1, 'root', None, 0],
             [3, 'sub', 1, 1],
@@ -381,14 +415,14 @@ deps_dictnum = {'format': 'department', 'version': [1, 0],
 
 members_down = {'format': 'member', 'version': [1, 0], 'fields': ['uuid', 'register'], 
         'data': [['uid1', 'invalid'],['uid2', 'password'],['uid3', None],['uidx',None]]}
-members_upnum = {'format': 'member', 'version': [1, 0],
+members_up = {'format': 'member', 'version': [1, 0],
         'fields': ['uuid', 'status', 'verified', 'department','register'], 
         'data': [['uid1', 'member', False, 3, False],
             ['uid2', 'eligible', True, 2, True],
             ['uid3', 'eligible', True, 4, None],
             ['uidx', 'deleted', None, None, None] ],
     }
-members_up = {'format': 'member', 'version': [1, 0],
+members_upname = {'format': 'member', 'version': [1, 0],
         'fields': ['uuid', 'status', 'verified', 'department','register'], 
         'data': [['uid1', 'member', False, 'sub', False],
             ['uid2', 'eligible', True, 'subsub', True],
@@ -422,16 +456,45 @@ def test_sync(member_db):
     assert members == members_up
     assert deps == deps_dict
 
-def test_sync_crypto(bilateral):
-    from ekklesia.data import json_encrypt, json_decrypt
+def test_push(member_db):
+    db = member_db
+    down = copy.deepcopy(members_down)
+    down['data'] = down['data'][:2]
+    input = StringIO(json.dumps(down))
+    memfile, depfile = StringIO(), StringIO()
+    output=[memfile,depfile]
+    msg = dict(format='member',version=(1,0),status='',uuid='uid2')
+    for status in ('registered','failed','new'):
+        msg['status'] = status
+        assert not db.process_update(msg,input,output)
+        assert not memfile.getvalue()
+    msg['status'] = 'registering'
+    assert db.process_update(msg,input,output)
+    members = json.loads(memfile.getvalue())
+    assert members
+    q = db.session.query(db.Member)
+    assert q.get('uid2').registered and not q.get('uid1').registered
+    up = copy.deepcopy(members_up)
+    up['data'] = up['data'][:2]
+    assert members == up
+    assert not db.process_update(msg,input,output)
+
+@fixture(params=[MyMemberDatabase,MyMemberInvDatabase],scope='module')
+def crypto_db(dbconnection,request):
+    dbtype = request.param
     apiconfig = dict(format='json',encrypt=True,sign=True,receiver=receiver)
-    cfg = dict(def_config)
-    cfg.update(dict(email_receiver=receiver,department_spec='number'))
-    db = setup_db(dict(config=cfg,apiconfig=apiconfig))
+    extra = dict(apiconfig=apiconfig) if dbtype==MyMemberDatabase else dict(memberconfig=apiconfig)
+    db = setup_db(dbtype,depspec='number',engine=dbconnection,**extra)
+    request.addfinalizer(lambda: stop_db(db,dbconnection))
+    db.session.commit = db.session.flush
     deps = gen_departments(db,'number')
     members = gen_members(db,deps,'name')
     db.session.add_all(list(deps.values())+list(members))
+    return db
 
+def test_sync_crypto(bilateral,crypto_db):
+    from ekklesia.data import json_encrypt, json_decrypt
+    db = crypto_db
     id2 = bilateral['id2']
     input, result = json_encrypt(members_down,id2,sender,True)
     assert result.ok
@@ -445,14 +508,19 @@ def test_sync_crypto(bilateral):
     members = memfile.getvalue()
     members, encrypted, signed, result = json_decrypt(json.loads(members),id2)
     assert result.ok and result.valid
-    assert members==members_upnum
+    assert members==members_up
 
     deps = depfile.getvalue()
     deps, encrypted, signed, result = json_decrypt(json.loads(deps),id2)
     assert result.ok and result.valid
-    assert deps==deps_dictnum
+    assert deps==deps_dict
 
     result = id2.decrypt_str(emails.getvalue())
     assert result.ok and result.valid
     emails = str(result)
     assert emails==emails_sync
+    db.session.rollback()
+
+def test_empty(empty_db):
+    db = empty_db
+    assert not db.session.query(db.Member).count()

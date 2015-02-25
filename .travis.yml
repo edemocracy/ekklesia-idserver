@@ -12,4 +12,4 @@ install:
 script:
   - make test
 after_success:
-  coveralls debug
+  coveralls

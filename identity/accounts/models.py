@@ -35,7 +35,17 @@ from mptt.models import MPTTModel, TreeForeignKey, TreeManyToManyField
 from django_countries.fields import CountryField
 #from phonenumber_field.modelfields import PhoneNumberField
 from ekklesia.models import ModelDiffMixin
-from ekklesia.fields import EmailNullField
+
+def notify_backends(status,uuid):
+    if not settings.BROKER_URL: return
+    import celery
+    from kombu import Connection, Exchange, Queue, Producer
+    exchange = Exchange(settings.BACKEND_EXCHANGE, 'fanout')
+    queue = Queue(settings.BACKEND_QUEUE, exchange=exchange)
+    msg = dict(format='member',version=(1,0),status=status,uuid=uuid)
+    print 'sending msg', msg
+    with celery.current_app.pool.acquire(timeout=1) as conn:
+        conn.Producer(serializer='json').publish(msg, exchange=exchange, declare=[queue])
 
 #-------------------------------------------------------------------------------------
 
@@ -90,7 +100,7 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
         validators=[
             validators.RegexValidator(re.compile('^[\w.@+-]+$'), _('Enter a valid username.'), 'invalid')
         ])
-    email = EmailNullField(_('email address'), blank=True, null=True, unique=True) # differs from django User class
+    email = models.EmailField(_('email address'), blank=True, null=True, unique=True, default=None)
     is_staff = models.BooleanField(_('staff status'), default=False,
         help_text=_('Designates whether the user can log into this admin '
                     'site.'))
@@ -166,7 +176,7 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
         help_text=_('Designates whether a notification email is sent after every succesful login.'))
 
     def is_member(self):
-        return self.status in (MEMBER,ELIGIBLE)
+        return self.status in (self.MEMBER,self.ELIGIBLE)
     is_member.short_description = 'Member account'
 
     def is_identity_verified(self,count=2):
@@ -203,8 +213,8 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
         if self.__class__==Account: return self
         from django.db import connection
         member = self.account_ptr
-        if member.status == GUEST:
-            member.status = MEMBER
+        if member.status == self.GUEST:
+            member.status = self.MEMBER
             member.save()
         cursor = connection.cursor()
         cursor.execute("DELETE FROM %s WHERE account_ptr_id = %s" % (self._meta.db_table, member.id))
@@ -212,7 +222,7 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
         return member
 
     def convert_to_guest(self):
-        guest = Guest(account_ptr=self,status = GUEST)
+        guest = Guest(account_ptr=self,status = self.GUEST)
         guest.save_base(raw=True)
         return Guest.objects.get(pk=guest.pk)
 
@@ -221,6 +231,13 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
         verifier = Verifier(account_ptr=self,for_nested_groups = target)
         verifier.save_base(raw=True)
         return Verifier.objects.get(pk=verifier.pk)
+
+    def email_confirmed(self, email):
+        self.email = email
+        #user.is_active = True
+        if self.status == self.NEWMEMBER:
+            notify_backends(status='registering',uuid=self.uuid)
+        self.save(update_fields=('email',))
 
 class Verifier(Account):
     parent = models.ForeignKey(Account,related_name='+',blank=True,null=True)
@@ -283,7 +300,7 @@ class Invitation(models.Model, ModelDiffMixin):
     )
 
     status = models.PositiveIntegerField(_('user type'),choices=STATUS_CHOICES,default=NEW)
-    code = models.CharField(_('invitation code'),max_length=32, unique=True)
+    code = models.CharField(_('invitation code'),max_length=36, unique=True)
     uuid = UUIDField(_('member UUID'),unique=True,blank=True,null=True,auto=False)
     secret = models.CharField(_('secret'), blank=True, null=True, max_length=128)
 
@@ -300,9 +317,7 @@ class ConfirmationManager(models.Manager):
             return False
         if not confirmation.confirmation_key_expired():
             user = confirmation.user
-            user.email = confirmation.email
-            #user.is_active = True
-            user.save()
+            user.email_confirmed(confirmation.email)
             confirmation.delete()
             return user
         return False

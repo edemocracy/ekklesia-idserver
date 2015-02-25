@@ -16,6 +16,9 @@ TEMPLATE_DIRS = templates $(filter %/, $(wildcard */templates/))
 JADE_SRC = $(foreach dir, $(TEMPLATE_DIRS), $(wildcard $(dir)*.jade) $(wildcard $(dir)*/*.jade))
 JADE_OUT = $(patsubst %.jade,%.html,$(JADE_SRC))
 
+.PHONY: $(TARGETS)
+dummy: all
+
 basicclean:
 	@-find . \( -name "__pycache__" -or -name ".cache" \) -exec rm -rvf "{}" \;
 	@-find . \( -name '*~' -or -name '*.py[co]' -or -name '._*' -or -name '.coverage' \) -exec rm -rvf "{}" \;
@@ -23,3 +26,8 @@ basicclean:
 
 %.html: %.jade
 	pyjade -e html $< | sed "s/|__pyjade_iter:1//" > $@
+
+test-local:
+	@test -z "$(TEST_DEPS)" || $(MAKE) $(TEST_DEPS)
+	-coverage run -m py.test $(TEST_OPT)
+	-coverage report

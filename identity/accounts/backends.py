@@ -31,7 +31,7 @@ class UserOrEmailAuthBackend(ModelBackend):
     """
     supports_anonymous_user=False
 
-    def authenticate(self, username=None, password=None):
+    def authenticate(self, username=None, password=None, **kwargs):
         #If username is an email address, then try to pull it up
         from django.core.validators import email_re
         if email_re.search(username):

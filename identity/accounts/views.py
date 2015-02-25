@@ -519,6 +519,7 @@ A confirmation link has been sent to the email address you supplied.""")
         with transaction.atomic():
             new_user = self.user_class.objects.create_user(username, None, password,
                 status=Account.DELETED)
+            new_user.email = None
             new_user.is_active = False
             new_user.save(update_fields=['is_active'])
             confirmation = models.EMailConfirmation.objects.create_confirmation(new_user, email)

@@ -58,6 +58,9 @@ class AccountCreationForm(UserCreationForm):
         model = models.Account
         #fields = UserCreationForm.Meta.fields+('uuid',)
 
+    def clean_email(self):
+        return self.cleaned_data['email'] or None
+
     def clean_username(self):
         from django import forms
         username = self.cleaned_data["username"]
@@ -73,6 +76,8 @@ class AccountChangeForm(UserChangeForm):
     class Meta(UserChangeForm.Meta):
         model = models.Account
         #fields = UserChangeForm.Meta.fields+('uuid',)
+    def clean_email(self):
+        return self.cleaned_data['email'] or None
 
 class VerificationInline(admin.StackedInline):
     model = models.Verification
@@ -97,7 +102,7 @@ class AccountAdmin(UserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'password1', 'password2','uuid','nested_groups')}
+            'fields': ('username', 'password1', 'password2','email','uuid','nested_groups')}
         ),
     )
     """original:
