@@ -59,20 +59,13 @@ class MemberInvDatabase(MemberDatabase,InvitationDatabase):
         parser.add_argument("-c","--codes",metavar='CODES',help='file with initial invite codes')
         return parser
 
-    def init_parser_import(self,subparsers):
-        parser = subparsers.add_parser('import', help='import data')
-        parser.add_argument("-a", "--all", action="store_true", default=False, help="require import of all fields")
-        parser.add_argument("-d", "--decrypt", action="store_true", default=False, help="decrypt data")
-        parser.add_argument("-v", "--verify", action="store_true", default=False, help="verify signature of data (required if signed)")
-        parser.add_argument("-s", "--sync", action="store_true", default=False, help="keep only imported data")
+    def init_parser_import(self,subparsers, withfile=True):
+        parser = super(MemberInvDatabase,self).init_parser_import(subparsers,withfile=False)
         parser.add_argument("input",nargs="+",help='input file(s) with members[,departments] or codes')
         return parser
 
     def init_parser_export(self,subparsers):
-        parser = subparsers.add_parser('export', help='export data')
-        parser.add_argument("-e", "--encrypt", action="store_true", default=False, help="encrypt data")
-        parser.add_argument("-s", "--sign", action="store_true", default=False, help="sign data")
-        parser.add_argument("-a", "--all", action="store_true", default=False, help="export all fields")
+        parser = super(MemberInvDatabase,self).init_parser_export(subparsers,withfile=False)
         parser.add_argument("output",nargs='+',help='output files for members,departments and invitations')
         return parser
 

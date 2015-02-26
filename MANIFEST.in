@@ -1,5 +1,6 @@
 include LICENSE
 include README.rst
+include ekklesia/backends/*.py
 recursive-include static *
 recursive-include templates *
 recursive-include locale *

@@ -176,8 +176,10 @@ def decode_field(data,ftype):
 def encode_field(data,ftype,format='csv'):
     import datetime
     if data is None: return None
-    if ftype in (datetime.date,datetime.time,datetime.datetime): return data.isoformat()
-    if ftype==str: return str(data)
+    elif ftype==datetime.date: return data.strftime(DATE_ISO8601)
+    elif ftype==datetime.time: return data.strftime(TIME_ISO8601)
+    elif ftype==datetime.datetime: return data.strftime(DATETIME_ISO8601)
+    elif ftype==str: return str(data)
     return data
 
 class DataTable(object):

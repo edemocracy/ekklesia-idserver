@@ -20,6 +20,13 @@
 # For more details see the file COPYING.
 
 """
+This is the invitation database (see members database for more details on the registration process).
+It can be combined with the member database into a joint database.
+The separation makes it possible to reset invitation codes without access to the more sensitive
+member database.
+
+Data formats used for import/export/sync:
+
 fields (format: invitation 1.0):
 uuid    - unique member id (UUID max.36)
 email   - email adress (if not joint db)
@@ -36,56 +43,20 @@ export fields: uuid,code(,email if not joint)
 sync download: uuid,status[,check_email][,echo]
 sync upload: uuid,status,code[,check_email][,echo]
  echo or check_email if in download and enabled
-
 reset data: simple linewise list of emails or uuids
 
-import:
-independent: members -> export deleted or not registered, import & gen codes or delete, sync status
-joint: members -> set status for registered, gen codes for non-reg, sync status
-memberdb exports all uuids+emails
-import uuid[,email] - email if not joint
-if uuid not found, ignore
-if email is empty -> delete code
-
-sync:
-download: uuid,status
- new, registered and failed uuids
- for push sync: only download failed/registered if status not already updated
-upload: uuid,status,code
- if implicit delete: non-uploaded invs are deleted
- status: new (or response to failed),deleted,registered (response to registered)
- if new, create/overwrite inv
- if deleted/registered, delete inv
-
-states: updated only in reaction to confirmation (command -> confirm -> next cmd)
-1. import from memberdb: new, unsent, generate code
-2. upload to idserver: new->new
-3. download from idserver: new -> uploaded, unsent (otherwise not ready for sending)
-4. send mail: uploaded,sent (or retry until sent, failed->fix email?new code)
-5. reset: set to 1.
-6. download:
- failed on failed,sent -> new,unsent (1.)
- failed on uploaded -> failed,unsent
- registered on uploaded -> registered,unsent
-7. send confirmation/rejection, failed->1., registered->registered,sent
-8. upload: registered or deleted ->delete
- failed,unsent->failed
-
-state transitions:
+sync state transitions:
 backend,idserver -> target
 new,-         -> idserver:new
-new,new       -> idserver:new
-new,new       -> backend:uploaded
+new,new       -> idserver:new, backend:uploaded
 -,any         -> backend:deleted,error
 uploaded,new /-> idserver
 uploaded,new  -> backend:uploaded
 uploaded,reging-> backend:uploaded
 uploaded,reg  -> backend:registered
-reg,reg       -> backend:reg
-reg,reg       -> idserver:delete
 uploaded,fail -> backend:fail
-fail,fail     -> backend:fail
-fail,fail     -> idserver:delete (or new,new)
+reg,reg       -> backend:reg, idserver:delete
+fail,fail     -> backend:fail, idserver:delete (or new,new)
 fail,-        -> backend:new (check if fail not downloaded)
 
 requirements: Python >=2.7, sqlalchemy, gnupg, requests
@@ -112,18 +83,24 @@ class ISentStatusType(DeclEnum):
 
 invitations_spec ='''
 [invitations]
+# the table name for invitations
 invite_table = string(default='invitations')
+# columns to import from the table
 invite_import = string_list(default=list('uuid','email','code','status','sent','lastchange'))
-invite_check_email = string # allow check_email, if empty disabled
+# allow check_email, if empty disabled
+invite_check_email = string
+# email template for invitations
 invite_subject = string(default='Invitation Code')
 invite_body = string(default="""Dear member,\\nYou're welcome to sign up for Ekklesia.\\nPlease your following personal link to sign up\\n<%s>\\nWarning: Do not forward or show this message to anyone else.\\nOtherwise someone else sign up in your name with this link.\\nThank you""")
-registered_subject = string(default='Registration successful')
-registered_body = string(default="Your account has been successfully registered")
-failed_subject = string(default='Registration failed')
-failed_body = string(default="Your account registration has failed. You're going to receive another invitation soon.")
 invite_url = string(default='https://localhost/register?code=%s')
 invite_sign = boolean(default=True) # sign invitation emails
 invite_notify = boolean(default=True) # send confirmation after registration
+# email template for registration confirmation
+registered_subject = string(default='Registration successful')
+registered_body = string(default="Your account has been successfully registered")
+# email template for failure notification
+failed_subject = string(default='Registration failed')
+failed_body = string(default="Your account registration has failed. You're going to receive another invitation soon.")
 # required signature for import, receiver for export
 io_key = string
 broker = string
@@ -166,12 +143,18 @@ class InvitationDatabase(AbstractDatabase):
         parser = subparsers.add_parser('send', help='send emails to members')
         return parser
 
+    def init_parser_sync(self,subparsers,twopass=False):
+        parser = super(InvitationDatabase,self).init_parser_sync(subparsers)
+        parser.add_argument("-m", "--mails",metavar='MAILS', help='output file for unregistered members')
+        parser.add_argument("-a", "--ack", action="store_false", help="do not acknowledge uploads")
+        return parser
+
     def init_parsers(self,name,description):
         parser, subparsers = self.init_parser_main(name,description)
         self.init_parser_init(subparsers)
         self.init_parser_import(subparsers)
         self.init_parser_export(subparsers)
-        self.init_parser_sync(subparsers,twopass=True)
+        self.init_parser_sync(subparsers)
         self.init_parser_push(subparsers)
         self.init_parser_reset(subparsers)
         self.init_parser_send(subparsers)
@@ -250,9 +233,10 @@ class InvitationDatabase(AbstractDatabase):
         self.invite_columns, self.invite_types = reflect_class(self.Invitation)
 
     def import_invitations(self,input,decrypt=False,verify=False,
-            allfields=False,dryrun=False,format='csv'):
+            allfields=False,sync=False,dryrun=False,format='csv'):
         """import data from input.
         allfields is used for restore and requires all columns.
+        if sync, uuids not seen in input are set to status deleted.
         decrypt=with the default key, verify=check whether its signed with io_key.
         """
         from ekklesia.data import DataTable
@@ -287,10 +271,10 @@ class InvitationDatabase(AbstractDatabase):
                     self.warn("uuid %s not found" % uuid)
                     continue
                 if not member.email: # email removed, disable invitation
-                    if member.invitation:
+                    inv = member.invitation
+                    if inv and not inv.status in (IStatusType.deleted,IStatusType.registered):
                         self.info("scheduling invitation for uuid '%s' for deletion", member.uuid)
-                        if not dryrun:
-                            member.invitation.delete()
+                        if not dryrun: inv.delete()
                     continue
                 count += 1
                 if dryrun: continue
@@ -306,7 +290,7 @@ class InvitationDatabase(AbstractDatabase):
                     if inv is None:
                         self.warn("uuid %s not found" % uuid)
                         continue
-                    if inv.status == IStatusType.deleted: continue
+                    if inv.status in (IStatusType.deleted,IStatusType.registered): continue
                     self.info("scheduling invitation for uuid '%s' for deletion", inv.uuid)
                     if not dryrun: inv.delete()
                     continue
@@ -330,6 +314,19 @@ class InvitationDatabase(AbstractDatabase):
                 else:
                     session.add(Invitation(**data)) #new
         self.info('%i imported invitations', count)
+        if sync: # deleted unseen invitations
+            count = 0
+            for inv in session.query(membercls if membercls else Invitation).yield_per(1000):
+                uuid = inv.uuid
+                if uuid in seen: continue
+                if membercls:
+                    inv = inv.invitation
+                    if not inv: continue
+                if inv.status==IStatusType.deleted: continue
+                inv.status = IStatusType.deleted
+                self.info("invitation %s deleted" % uuid)
+                count += 1
+            self.info('%i deleted invitations', count)
         if not dryrun: session.commit()
 
     def export_invitations(self,output,allfields=False,encrypt=None,sign=False,format='csv'):
@@ -379,7 +376,7 @@ class InvitationDatabase(AbstractDatabase):
             if input: input = json.load(input)
             if not input: # pragma: no cover
                 url = self.invite_api.url
-                if quick: url+'?changed=1'
+                if quick: url+='?changed=1'
                 resp = api.get(url)
                 if resp.status_code != requests.codes.ok:
                     if self.debugging: open('invdown.html','w').write(resp.content)
@@ -426,7 +423,7 @@ class InvitationDatabase(AbstractDatabase):
                     continue
                 seen.add(uuid)
                 status = data['status']
-                if not status in ('new','registered','failed'):
+                if not status in ('registered','failed','new') or (quick and status=='new'):
                     self.warn("invalid status %s for %s" % (status,uuid))
                     continue
                 inv = query.filter_by(uuid=uuid).first()
@@ -588,17 +585,16 @@ class InvitationDatabase(AbstractDatabase):
         from kryptomime import create_mail
         if status == IStatusType.uploaded:
             link = self.invite_url % inv.code
-            subject, body = self.invite_subject,self.invite_body % link
+            subject, body = self.invite_subject,self.invite_body.decode('string_escape') % link
         elif status == IStatusType.registered:
-            subject, body = self.registered_subject, self.registered_body
+            subject, body = self.registered_subject, self.registered_body.decode('string_escape')
         else: # status == IStatusType.failed:
-            subject, body = self.failed_subject, self.failed_body
+            subject, body = self.failed_subject, self.failed_body.decode('string_escape')
         return create_mail(sender,email,subject,body)
 
     def send_invitations(self,dryrun=False,debug_smtp=None):
         "send emails to all uploaded/registered/failed and not already sent invitations"
         from ekklesia.mail import smtp_init
-        from sqlalchemy import or_
         import smtplib
         session = self.session
         Invitation = self.Invitation
@@ -613,7 +609,9 @@ class InvitationDatabase(AbstractDatabase):
         sstati = [ISentStatusType.unsent,ISentStatusType.retry]
         query = query.filter(Invitation.sent.in_(sstati))
         count = 0
-        for inv in query.yield_per(1000):
+        while True:
+            inv = query.first() # no commits during yield_per
+            if not inv: break
             if self.member_class: email = inv.member.email
             else: email = inv.email
             self.info('sending %s status %s to %s', inv.code, inv.status, email)
@@ -632,7 +630,7 @@ class InvitationDatabase(AbstractDatabase):
                 except (smtplib.SMTPDataError,smtplib.SMTPSenderRefused,smtplib.SMTPHeloError):
                     inv.sent = ISentStatusType.retry # retry
                 inv.change()
-                if not dryrun: session.commit()
+                session.commit() # critical data
             count +=1
         if not debug_smtp: smtp.close()
         self.info('%i emails successfully sent', count)
@@ -642,7 +640,7 @@ class InvitationDatabase(AbstractDatabase):
         if args.dryrun: self.info('simulating import')
         with special_openwith(input, 'r') as f:
             self.import_invitations(f,decrypt=args.decrypt,verify=args.verify,
-                dryrun=args.dryrun,allfields=args.all)
+                dryrun=args.dryrun,allfields=args.all,sync=args.sync)
 
     def run_export_invitations(self, args, output): # pragma: no cover
         from ekklesia.data import special_openwith
@@ -666,9 +664,9 @@ class InvitationDatabase(AbstractDatabase):
         if args.dryrun: self.info('simulating sync')
         input = special_open(args.input,'r') if args.input else None
         output = special_open(args.output[0],'w') if args.output else None
-        self.sync_invitations(download=args.download,upload=args.upload,
+        self.sync_invitations(download=args.download,upload=args.upload,quick=args.quick,
             input=input,output=output,dryrun=args.dryrun)
-        if args.ack: # acknowledge new uploads so they can be sent
+        if args.ack and not args.quick: # acknowledge new uploads so they can be sent
             self.sync_invitations(download=True,upload=False,dryrun=args.dryrun)
 
     def run_reset_invitations(self, args): # pragma: no cover
@@ -694,15 +692,14 @@ class InvitationDatabase(AbstractDatabase):
         with daemon, session_context(self):
             engine = create_engine(self.database,echo=False) #, echo=self.debugging
             if args.command == 'init':
+                if args.drop:
+                    self.info('dropping tables')
+                    self.open_db(engine,mode='dropall' if args.all else 'drop')
                 self.open_db(engine,mode='create')
                 self.info('database intialized')
                 if args.initial:
                     with special_openwith(args.initial[0], 'r') as f:
                         self.import_invitations(f,allfields=True)
-                return
-            elif args.command == 'drop':
-                self.info('deleting database')
-                self.open_db(engine,mode='dropall' if args.all else 'drop')
                 return
             self.open_db(engine,mode='open')
             if args.command == 'import':

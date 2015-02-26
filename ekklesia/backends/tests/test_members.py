@@ -58,7 +58,7 @@ memberno,uuid,entitled,verified,email,department,parent,address
 
 
 import os, copy
-from ekklesia.backends.members import MemberDatabase
+from ekklesia.backends.members import MemberDatabase, MStatusType
 from ekklesia.backends.joint import MemberInvDatabase
 from pytest import fixture, raises, mark
 from ekklesia.tests.conftest import pytest_addoption, sender, receiver, third, keys, bilateral
@@ -251,6 +251,16 @@ def test_reimport(member_db):
     memfile = StringIO(members_name)
     member_db.import_members(memberfile=memfile,depfile=depfile)
     check_objs(member_db)
+
+def test_import_delete(member_db):
+    db = member_db
+    depfile = StringIO(deps_name)
+    members = ''.join(members_name.splitlines(True)[:-1]) # remove last row
+    memfile = StringIO(members)
+    db.import_members(memberfile=memfile,depfile=depfile,sync=True)
+    query = db.session.query(db.Member)
+    assert query.count()==4
+    assert query.filter_by(uuid='uid4').one().status == MStatusType.deleted
 
 def test_import_crypt(empty_db,bilateral):
     db = empty_db

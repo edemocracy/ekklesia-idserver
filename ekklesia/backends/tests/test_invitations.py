@@ -214,6 +214,14 @@ def test_import_full(empty_db):
     db.import_invitations(StringIO(invitations))
     check_invs(db)
 
+def test_import_delete(inv_db):
+    db = inv_db
+    inv = ''.join(invitations.splitlines(True)[:-1]) # remove last row
+    db.import_invitations(StringIO(inv),sync=True)
+    query = db.session.query(db.Invitation)
+    assert query.count()==5
+    assert query.filter_by(code='inv8').one().status == IStatusType.deleted
+
 def test_import_crypt(empty_db,bilateral):
     db = empty_db
     id2 = bilateral['id2']

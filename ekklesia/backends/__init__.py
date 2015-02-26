@@ -225,29 +225,28 @@ class AbstractDatabase(object):
 
     def init_parser_init(self,subparsers):
         parser = subparsers.add_parser('init', help='initialize the database')
+        parser.add_argument("-d", "--drop", action="store_true", default=False, help="drop tables before init")
+        parser.add_argument("-a", "--all", action="store_true", default=False, help="drop all tables in the database")
         parser.add_argument("-i","--initial",nargs="+",metavar='INIT',help='file(s) with initial data')
         return parser
 
-    def init_parser_drop(self,subparsers):
-        parser = subparsers.add_parser('drop', help='delete all database contents')
-        parser.add_argument("-a", "--all", action="store_true", default=False, help="drop all tables")
-        return parser
-
-    def init_parser_import(self,subparsers):
+    def init_parser_import(self,subparsers, withfile=True):
         parser = subparsers.add_parser('import', help='import data')
         parser.add_argument("-a", "--all", action="store_true", default=False, help="require import of all fields")
         parser.add_argument("-d", "--decrypt", action="store_true", default=False, help="decrypt data")
         parser.add_argument("-v", "--verify", action="store_true", default=False, help="verify signature of data (required if signed)")
-        #parser.add_argument("-s", "--sync", action="store_true", default=False, help="keep only imported data")
-        parser.add_argument("file",help='file with data')
+        parser.add_argument("-s", "--sync", action="store_true", default=False, help="keep only imported data")
+        if withfile:
+            parser.add_argument("file",help='file with data')
         return parser
 
-    def init_parser_export(self,subparsers):
+    def init_parser_export(self,subparsers, withfile=True):
         parser = subparsers.add_parser('export', help='export data')
         parser.add_argument("-e", "--encrypt", action="store_true", default=False, help="encrypt data")
         parser.add_argument("-s", "--sign", action="store_true", default=False, help="sign data")
         parser.add_argument("-a", "--all", action="store_true", default=False, help="export all fields")
-        parser.add_argument("file",help='output file')
+        if withfile:
+            parser.add_argument("file",help='output file')
         return parser
 
     def init_parser_push(self,subparsers):
@@ -258,7 +257,7 @@ class AbstractDatabase(object):
         parser.add_argument("-w", "--wait",metavar='DELAY',type=int, default=0,help='minimum delay between syncs')
         return parser
 
-    def init_parser_sync(self,subparsers,twopass=False):
+    def init_parser_sync(self,subparsers):
         parser = subparsers.add_parser('sync', help='sync with server')
         parser.add_argument("-d", "--download", action="store_false", default=True,
              help="don't download members to sync, but sync all")
@@ -266,14 +265,11 @@ class AbstractDatabase(object):
         parser.add_argument("-i", "--input",metavar='IN',help='file with uuids to sync')
         parser.add_argument("-o", "--output",metavar='OUT',nargs='+',help='output file(s)')
         parser.add_argument("-q", "--quick", action="store_true", help="synchronize only updates")
-        if twopass:
-            parser.add_argument("-x", "--ack", action="store_true", help="acknowledge uploads")
         return parser
 
     def init_parsers(self,name,description):
         parser, subparsers = self.init_parser_main(name,description)
         self.init_parser_init(subparsers)
-        self.init_parser_drop(subparsers)
         self.init_parser_import(subparsers)
         self.init_parser_export(subparsers)
         self.init_parser_push(subparsers)
@@ -321,7 +317,8 @@ class AbstractDatabase(object):
         if mode=='drop':
             _drop_all(metadata)
             return
-        if mode=='create': metadata.create_all(engine)
+        if mode=='create':
+            metadata.create_all(engine,checkfirst=False)
         from sqlalchemy.orm import sessionmaker
         self.Base.prepare(engine)
         self.reflect_classes()

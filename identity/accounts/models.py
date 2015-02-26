@@ -215,7 +215,7 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
         member = self.account_ptr
         if member.status == self.GUEST:
             member.status = self.MEMBER
-            member.save()
+            member.save(update_fields=('status',))
         cursor = connection.cursor()
         cursor.execute("DELETE FROM %s WHERE account_ptr_id = %s" % (self._meta.db_table, member.id))
         transaction.commit_unless_managed()
@@ -304,6 +304,11 @@ class Invitation(models.Model, ModelDiffMixin):
     uuid = UUIDField(_('member UUID'),unique=True,blank=True,null=True,auto=False)
     secret = models.CharField(_('secret'), blank=True, null=True, max_length=128)
 
+    def registration_failed(self):
+        self.status = self.FAILED
+        self.secret = None
+        self.save(update_fields=('status','secret'))
+
 # inspired by django-registrations
 
 SHA1_RE = re.compile('^[a-f0-9]{40}$')
@@ -320,6 +325,7 @@ class ConfirmationManager(models.Manager):
             user.email_confirmed(confirmation.email)
             confirmation.delete()
             return user
+        confirmation.confirmation_failed()
         return False
 
     def create_confirmation(self, user, email):
@@ -332,10 +338,7 @@ class ConfirmationManager(models.Manager):
     def delete_expired(self):
         for confirmation in self.all():
             if confirmation.confirmation_key_expired():
-                user = confirmation.user
-                if not user.is_active and not user.email:
-                    user.delete()
-                confirmation.delete()
+                confirmation.confirmation_failed()
 
 class EMailConfirmation(models.Model):
     user = models.OneToOneField(Account, primary_key=True, 
@@ -359,6 +362,16 @@ class EMailConfirmation(models.Model):
         expiration_date = datetime.timedelta(days=settings.EMAIL_CONFIRMATION_DAYS)
         return self.created + expiration_date <= timezone.now()
     confirmation_key_expired.boolean = True
+
+    def confirmation_failed(self):
+        user = self.user
+        self.delete()
+        if not user.is_active and not user.email:
+            user.delete()
+        try:
+            invitation = Invitation.objects.get(uuid=user.uuid,status=Invitation.REGISTERING)
+            invitation.registration_failed()
+        except: pass
 
     def send_confirmation_email(self, domain, use_https=False):
         from django.core.mail import send_mail

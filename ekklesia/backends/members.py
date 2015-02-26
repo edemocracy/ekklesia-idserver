@@ -22,29 +22,84 @@
 """
 This backend manages the relevant private data of members (including the departments) and
 syncs them with the ID server and other backends.
-It may store its data in an existing (external) or its own database.
-For each members at least the UUID and email must be provided.
-The fields in the DB are listed in member_import, and may have different names (column_map).
+It either uses an existing (external) or its own self-managed database (default).
+For each member at least a UUID and email must be provided.
+The fields in the DB are listed in member_import, and their names may be remapped (column_map).
 The methods for accessing the fields can be overriden.
-
-default mode: fully managed (own DB and structure) with separate member + department tables
- optional fields for storage
-may be customized for existing db (mapping, department+parent etc), extra fields, overwrite access methods
 The settings are stored in members.ini
 
-The fields in the database and import/export files are:
+The full list of steps of the registration process:
+
+In general the status may only be changed when the other side has acknowledged/mirrored it
+0. init database or prepare external db
+1. import member data, registered=None
+ member must be imported before it can be transfered to invitations
+ members are never deleted but set to deleted status (with status=deleted or --sync option)
+ rows with missing uuids or duplicate uuids/emails are ignored
+2. export member uuid[,email] for invitations
+ optionally export only non-registered members using sync
+3. import as invitations uuid[,email],
+ creates: code,new,unsent,lastchange
+ set status to deleted if the email is empty and member not registered
+4. sync invitations:
+4.1. download uuid,status for registered/failed,
+ and registering=new/new if not onlychanged
+4.2. upload uuid,status,code
+ if not quick: upload all new
+ if uuid is unknown, upload status=deleted
+ if download=new:
+   status=new->upload/unsent - ready for sending
+   invitation is not uploaded
+ if download=failed/registered:
+   if status=uploaded->newstatus/unsent
+   if status=newstatus: do nothing
+   upload new status
+ reset all failed/sent invitations -> new
+4.3. on idserver
+ if status=new: create new invitation or update
+ else: delete invitation
+4.4. usually repeat download and update status (new->uploaded)
+5. send invitations (for uploaded and unsent/retry) -> status=sent
+ send registration/failure notification to registered/failed -> sent
+6. user registers with invitation/new (and secret if 2factor)
+ invitation->registering, status->newmember
+7. send email confirmation
+8. email confirmed (delete confirmation, send notify registering -> 9.)
+  or expired (status=deleted/invitation=failed, send notify failed -> 4.)
+9. sync members
+9.1. download uuid[,check_member][,check_email][,echo]
+ for newmember (and check_member for 2factor/registering),
+ and member/eligbile if not onlynew
+ for quick sync ignore already registered members
+9.2. upload uuid,status,verified,department[,check_member][,check_email][,gpslat,gpslng][,echo]
+  gps if location enabled, echo or check_member/check_email if in download and enabled
+ if check_member matches or no 2factor-> set registered,
+ upload status, check_member status if 2factor
+ export mail: uuid,email for all registered
+ invitations: uuid,email for non-registered/non-deleted
+ upload departments id,name,parent,depth
+9.3. on idserver
+ ignore unconfirmed-email members
+ status: deleted->delete member, deactive login
+  member/eligibile->newstatus, inv=registered and activate login
+ deps: id,name,parent,depth - delete non-mentioned deps with id
+ if activate was wrong->inv=failed,delete member
+ send notify for failed/registered status -> push invitations (4./5.)
+
+The fields in the database and used in import/export/sync are:
 
 field (format: member 1.0):
 uuid    - unique member id (UUID max.36) as reference
 memberno - unique member no (optional)
 email   - email address
 status  - member status: deleted, member, eligible
-verified - whether member is verified (optional)
-registered - UTC datetime when check_member was positiv for the first time (optional)
-department - department id (optional)
-parent  - parent department id (optional, if department_spec is implicit)
-location  - location of member (optional)
-birthday  - birthday of member YYYY-MM-DD (optional)
+optional fields:
+registered - UTC datetime when check_member was positiv for the first time
+department - department id
+parent  - parent department id (if department_spec is implicit)
+verified - whether member is verified
+location  - location of member
+birthday  - birthday of member YYYY-MM-DD
 extra for sync:
 echo    - return in response (optional)
 check_member - member to check, return 0/1 response if not empty (optional)
@@ -60,30 +115,6 @@ import fields: all
 export fields: all
 export/sync email fields: uuid,email
 
-sync protocol:
-relevant changes to member DB:
-* user added -> new UUID, memberno, email?
-* user deleted -> UUID or memberno NULL, or completely deleted (bad)
-* depmt added
-* depmt merged to upstream
-relevant changes to upstream DB:
-* user registered: UUID added for sync
-* user deleted: UUID kept but not synced
-
-1. download: only active, or registering UUIDs (newmember,inv=registering) are downloaded
- for registering UUIDs also include the activation passwort
- fields: uuid[,check_member][,check_email][,echo]
-for push sync: only download registering when new registering
- uuid receieved and uuid is not already registered
-2. upload: replies to download (member,department),
- sync departments
- member fields: uuid,status,verified,department[,check_member][,check_email][,gpslat,gpslng][,echo]
-  gps if location enabled, echo or check_member/email if in download and enabled
- if activation failed set invitation failed, if new member is deleted -> delete account
- update account status, if deleted deactivate
-
-TODO: check changes to member, exception handling
-
 Requirements: Python >=2.7, sqlalchemy, gnupg, requests, pygeocode
 """
 
@@ -95,18 +126,24 @@ from ekklesia import FormattedWarning
 
 members_spec="""
 [members]
+# the table name for members
 member_table = string(default='members')
+# columns to import from the table
 member_import = string_list(default=list('uuid','email','status','registered','department'))
-# optional 'registered','verified','memberno','birthday','location'
-# if empty member_sync = member_import
+# optional: registered,verified,memberno,birthday,location
+# columns to sync, if empty member_sync = member_import
 member_sync = string_list(default=list('uuid','status','verified','department'))
 # type of department field: number/name, implicit:reconstruct hierarchy from extra parent name
 department_spec = option('implicit','number','name',default='name')
+# the table name for departments
 department_table = string(default='departments')
+# columns to import from the table
 department_import = string_list(default=list('id','parent','name','depth'))
-check_member = string # field name for check_member, if empty disabled
-check_email = string # field name for check_member, if empty disabled
-# sync: email+uuid export, independent of export --mail
+# field name for check_member, if empty disabled
+check_member = string
+# field name for check_member, if empty disabled
+check_email = string
+# sync: email+uuid export of registered members, independent of export --mail
 export_emails = boolean(default=False)
 # sync: email+uuid export of non-registered members
 export_invite = boolean(default=True)
@@ -148,25 +185,18 @@ class MemberDatabase(AbstractDatabase):
         assert self.department_spec != 'number' or 'id' in self.department_import, "id field required"
         return self
 
-    def init_parser_import(self,subparsers):
-        parser = subparsers.add_parser('import', help='import data')
-        parser.add_argument("-a", "--all", action="store_true", default=False, help="require import of all fields")
-        parser.add_argument("-d", "--decrypt", action="store_true", default=False, help="decrypt data")
-        parser.add_argument("-v", "--verify", action="store_true", default=False, help="verify signature of data (required if signed)")
-        #parser.add_argument("-s", "--sync", action="store_true", default=False, help="keep only imported data")
+    def init_parser_import(self,subparsers,withfile=True):
+        parser = super(MemberDatabase,self).init_parser_import(subparsers,withfile=False)
         parser.add_argument("input",nargs="+",help='input file(s) with members[,departments]')
         return parser
 
     def init_parser_export(self,subparsers):
-        parser = subparsers.add_parser('export', help='export data')
-        parser.add_argument("-e", "--encrypt", action="store_true", default=False, help="encrypt data")
-        parser.add_argument("-s", "--sign", action="store_true", default=False, help="sign data")
-        parser.add_argument("-a", "--all", action="store_true", default=False, help="export all fields and departments, otherwise only mails")
+        parser = super(MemberDatabase,self).init_parser_export(subparsers,withfile=False)
         parser.add_argument("output",nargs="+",help='output files for (members,departments) or emails')
         return parser
 
-    def init_parser_sync(self,subparsers,twopass=False):
-        parser = super(MemberDatabase,self).init_parser_sync(subparsers,twopass)
+    def init_parser_sync(self,subparsers):
+        parser = super(MemberDatabase,self).init_parser_sync(subparsers)
         parser.add_argument("-m","--mails",metavar='MAILS', help='output file for unregistered members')
         return parser
 
@@ -349,16 +379,18 @@ class MemberDatabase(AbstractDatabase):
         self.department_types['parent'] = deptype
 
     def email_change(self,member,data):
-        "run when email of member changes"
+        "called before email of member changes"
 
     def delete_member(self,member):
-        "run when member has been set to deleted status"
+        "called before member is set to deleted status"
 
     def import_members(self,memberfile=None,depfile=None,decrypt=False,verify=False,
-        dryrun=False,allfields=False,format='csv'):
+        dryrun=False,sync=False,allfields=False,format='csv'):
         """import data from memberfile, optionally depfile (if not implicit).
         allfields is used for restore and requires all columns.
+        if sync, uuids not seen in input are set to status deleted.
         decrypt=with the default key, verify=check whether its signed with io_key.
+        rows with missing uuids or duplicate uuids and emails are ignored.
         """
         from ekklesia.data import DataTable, init_object
         from sqlalchemy.orm import aliased
@@ -479,7 +511,7 @@ class MemberDatabase(AbstractDatabase):
                             dep.update(parent=parent)
                 data['department'] = dep
             if 'email' in columns and not data['email']:
-                data['email'] = None # ensure it's None
+                data['email'] = None # make sure it's None
             # find existing member
             member = mquery.filter_by(**{primary:id}).first()
             if data['email'] and not (member and member.email==data['email']):
@@ -492,17 +524,26 @@ class MemberDatabase(AbstractDatabase):
             if member:
                 if member.email != data['email']:
                     self.email_change(member,data)
-                member.update(**data)
                 if data.get('status') == 'deleted':
                     self.delete_member(member)
+                member.update(**data)
             else: session.add(Member(**data)) #new
         self.info('%i imported members', count)
+        if sync: # deleted unseen members
+            count = 0
+            for member in session.query(Member).yield_per(1000):
+                if member.status==MStatusType.deleted or member.uuid in seen: continue
+                self.delete_member(member)
+                member.status = MStatusType.deleted
+                self.info("member %s deleted" % member.uuid)
+                count += 1
+            self.info('%i deleted members', count)
         # complete missing depths
         depalias = aliased(Department)
         fixdeps = session.query(Department.depth).filter_by(depth=None)
         if fixdeps.first(): # any departments with missing depths?
             fixdeps.filter_by(parent=None).update(dict(depth=0)) # set roots
-            while fixdeps.first(): # fill from roots to leafs
+            while fixdeps.first(): # fill from roots to leaves
                 for sub in session.query(Department).join(depalias,Department.parent).\
                     filter(depalias.depth!=None).yield_per(1000):
                     sub.depth = sub.parent.depth+1
@@ -532,7 +573,9 @@ class MemberDatabase(AbstractDatabase):
         if allfields:
             query = session.query(Member).order_by(Member.memberno if 'memberno' in columns else Member.uuid)
         else:
-            query = session.query(Member.uuid,Member.email).filter(Member.email!=None).order_by(Member.uuid)
+            query = session.query(Member.uuid,Member.email,Member.registered).order_by(Member.uuid)
+            if 'registered' in self.member_import:
+                query = query.filter_by(registered=None) # don't export registered
         extra = {}
         for member in query.yield_per(1000):
             if allfields and member.department: # FIXME: use get_department?
@@ -574,7 +617,7 @@ class MemberDatabase(AbstractDatabase):
             if input: input = json.load(input)
             else: # pragma: no cover
                 url = self.member_api.url
-                if quick: url+'?new=1'
+                if quick: url+='?new=1'
                 resp = api.get(url)
                 if resp.status_code != requests.codes.ok:
                     if self.debugging: open('memberdown.html','w').write(resp.content)
@@ -780,7 +823,7 @@ class MemberDatabase(AbstractDatabase):
         if len(input)==1: input.append(None)
         self.import_members(memberfile=input[0],depfile=input[1],
                 decrypt=args.decrypt,verify=args.verify,
-                dryrun=args.dryrun,allfields=args.all)
+                dryrun=args.dryrun,allfields=args.all,sync=args.sync)
 
     def run_export_members(self, args): # pragma: no cover
         from ekklesia.data import special_open
@@ -836,16 +879,15 @@ class MemberDatabase(AbstractDatabase):
         with daemon, session_context(self):
             engine = create_engine(self.database,echo=False) #, echo=self.debugging
             if args.command == 'init':
+                if args.drop:
+                    self.info('dropping tables')
+                    self.open_db(engine,mode='dropall' if args.all else 'drop')
                 self.open_db(engine,mode='create')
                 self.info('database intialized')
                 if args.initial:
                     args.input = args.initial
                     args.decrypt = args.verify = args.all = False
                     self.run_import_members(args)
-                return
-            elif args.command == 'drop':
-                self.info('deleting database')
-                self.open_db(engine,mode='dropall' if args.all else 'drop')
                 return
             self.open_db(engine,mode='open')
             if args.command == 'import':
