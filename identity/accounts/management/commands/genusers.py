@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# generate users
+# Generate test users
 #
 # Copyright (C) 2013-2015 by Thomas T. <ekklesia@heterarchy.net>
 #
@@ -33,4 +33,4 @@ class Command(BaseCommand):
             user.last_name=str(i)
             user.email='foo.%i@bar.com' % i
             user.save()
-        print 'done'
+        print('done')

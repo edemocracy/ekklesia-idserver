@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# import and export departments
+# Register a user
 #
 # Copyright (C) 2013-2015 by Thomas T. <ekklesia@heterarchy.net>
 #
@@ -48,15 +48,12 @@ class Command(BaseCommand):
             if options['uuid']: inv = Invitation.objects.get(uuid=code)
             else: inv = Invitation.objects.get(code=code)
         except ObjectDoesNotExist:
-            print 'invitation not found'
-            return
+            raise CommandError('invitation not found')
         if Account.objects.filter(username=username).exists():
-            print ('username is already used')
-            return
+            raise CommandError('username is already used')
         try:
             Account.objects.get(email=email)
-            print ('email is already used')
-            return
+            raise CommandError('email is already used')
         except ObjectDoesNotExist: pass
         if not password: password = input('enter password:')
         Account.objects.create_user(username, email, password,
@@ -65,4 +62,4 @@ class Command(BaseCommand):
         inv.secret = options['secret'] or None
         inv.save()
         notify_backends(status='registering',uuid=inv.uuid)
-        print 'success'
+        print('success')

@@ -41,7 +41,6 @@ def send_broker_msg(msg, exchange, queue, connection=None):
     from kombu import Connection, Exchange, Queue, Producer
     exchange = Exchange(exchange, 'fanout')
     queue = Queue(queue, exchange=exchange)
-    print 'sending msg', msg
     if connection:
         conn.Producer(serializer='json').publish(msg, exchange=exchange, declare=[queue])
         return

@@ -26,10 +26,10 @@ from celery import task
 @task(ignore_result=True)
 def send_background(msgid, debug=None, debug_gpg=None):
     from idapi.mails import send_queue
-    print 'celery'
+    print('celery')
     return send_queue(msgid, debug, debug_gpg)
 
 @task(ignore_result=True)
 def decrypt_background(msgid):
     from idapi.mails import send_queue
-    print 'decrypt msg', msgid
+    print('decrypt msg', msgid)

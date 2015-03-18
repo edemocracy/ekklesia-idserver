@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# Store email
+# Register a public key
 #
 # Copyright (C) 2013-2015 by Thomas T. <ekklesia@heterarchy.net>
 #
@@ -34,7 +34,7 @@ def findkey(gpg,keyid):
 class Command(BaseCommand):
 
     args = '[options] [keyid]'
-    help = 'register key'
+    help = 'register a public key'
 
     option_list = BaseCommand.option_list + (
         make_option("-d", "--download", action="store_true", default=False,
@@ -110,7 +110,7 @@ class Command(BaseCommand):
                 break
             if multikey:
                 if not fingerprint: raise CommandError('could not find keyid')
-            print 'importing', fingerprint
+            print('importing', fingerprint)
             if expires:
                 from datetime import datetime
                 import time

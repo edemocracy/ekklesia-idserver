@@ -171,7 +171,7 @@ def setup_db(dbtype=MyMemberDatabase,engine=None,depspec='name',reflect=True,**c
 def stop_db(db,engine=None):
     global current_db
     if current_db!=db:
-        print 'already finalized', db
+        print ('already finalized', db)
         return
     db.drop_db()
     db.stoplogger()

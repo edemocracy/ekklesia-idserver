@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# update key database
+# Update the key database
 #
 # Copyright (C) 2013-2015 by Thomas T. <ekklesia@heterarchy.net>
 #
@@ -25,7 +25,7 @@ from optparse import make_option
 
 class Command(BaseCommand):
 
-    help = 'update key database'
+    help = 'update the key database'
 
     def handle(self, *args, **options):
         from idapi.mails import update_keyrings

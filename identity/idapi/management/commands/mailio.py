@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# mail input/output
+# Email background tasks
 #
 # Copyright (C) 2013-2015 by Thomas T. <ekklesia@heterarchy.net>
 #

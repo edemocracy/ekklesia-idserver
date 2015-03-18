@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# process mails
+# Check email settings
 #
 # Copyright (C) 2013-2015 by Thomas T. <ekklesia@heterarchy.net>
 #
@@ -25,7 +25,7 @@ from optparse import make_option
 
 class Command(BaseCommand):
 
-    help = 'check settings'
+    help = 'check email settings'
 
     def check_config(self):
         from django.conf import settings
@@ -36,12 +36,12 @@ class Command(BaseCommand):
             for id, opts in ids.iteritems():
                 email = opts.get('email',id)
                 if email in seen:
-                    print 'ids: email %s used for id %s and %s' % (email,id,seen[email])
+                    print('ids: email %s used for id %s and %s' % (email,id,seen[email]))
                     ok = False
                 else:
                     seen[email] = id
         return ok
 
     def handle(self, *args, **options):
-        if self.check_config(): print 'success'
-        else: print 'failed'
+        if self.check_config(): print('success')
+        else: print('failed')

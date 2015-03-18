@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# Send email
+# Send email to user
 #
 # Copyright (C) 2013-2015 by Thomas T. <ekklesia@heterarchy.net>
 #
