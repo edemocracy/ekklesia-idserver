@@ -9,8 +9,8 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 setup(
     name='ekklesia',
-    author='entropy',
-    author_email='entropy@heterarchy.net',
+    author='Thomas T.',
+    author_email='ekklesia@heterarchy.net',
     url='',
     version='0.1',
     packages=['ekklesia'],

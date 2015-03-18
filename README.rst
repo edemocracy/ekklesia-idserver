@@ -34,7 +34,7 @@ This software comes with ABSOLUTELY NO WARRANTY. USE THIS SOFTWARE AT YOUR OWN R
 
 Authors
 ~~~~~~~
-Thomas "Entropy"    entropy at heterarchy.net
+Thomas T.    ekklesia at heterarchy.net
 
 Installation
 ~~~~~~~~~~~~
