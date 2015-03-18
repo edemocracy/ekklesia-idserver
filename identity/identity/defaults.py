@@ -381,6 +381,16 @@ def defaults(production=False,admin=False,site=0):
 					'handlers': ['file'],
 					'level': 'DEBUG',
 				},
+				'accounts': {
+					'handlers': ['file'],
+					'level': 'INFO',
+					'propagate': True,
+				},
+				'idapi': {
+					'handlers': ['file'],
+					'level': 'INFO',
+					'propagate': True,
+				},
 			},
 		}
 
@@ -431,6 +441,7 @@ def defaults(production=False,admin=False,site=0):
 		EMAIL_GPG_HOME = None
 
 		EMAIL_INDEP_CRYPTO = False # run independent crypto processing for incoming/outgoing mail
+		EMAIL_LOCK_TIMEOUT = 5*60 # seconds
 
 		EMAIL_TEMPLATES = {
 			# name: (subject,body) string(=default Template) or Template
@@ -441,6 +452,8 @@ def defaults(production=False,admin=False,site=0):
 
 		EMAIL_DEFAULT_SMTP=dict(host='localhost',port=25,user=None,password=None,
 			certfile=None,keyfile=None,ca_certs=None)
+
+		EMAIL_QUEUE=False # False=send directly, 'crypto'=only encrypted/signed, True=all
 
 		""" id: (
 			'email':None=id, # optional, default=id
@@ -482,6 +495,7 @@ def defaults(production=False,admin=False,site=0):
 		BROKER_URL = ''
 		BROKER_USE_SSL= False
 		BROKER_TRANSPORT_OPTIONS = {}
+		USE_CELERY = True # if BROKER_URL is set, use celery, otherwise kombu only
 		CELERY_RESULT_BACKEND = 'amqp://'
 		CELERY_TASK_SERIALIZER = 'json'
 		CELERY_RESULT_SERIALIZER = 'json'
@@ -491,6 +505,8 @@ def defaults(production=False,admin=False,site=0):
 
 		BACKEND_EXCHANGE='id-backend'
 		BACKEND_QUEUE='id-backend'
+		MAILIN_EXCHANGE='id-mailin'
+		MAILIN_QUEUE='id-mailin'
 	return Defaults
 
 class Testing(defaults(production=True,admin=False)):
@@ -543,6 +559,7 @@ class Testing(defaults(production=True,admin=False)):
 	"""Please confirm your key either by clicking on {url}={code}
 	or enter the following code at {url}: {code}
 	Thank you. Ümlaut"""),
+		'vote': ('Your vote',"You vote is {vote}"),
 	}
 
 	EMAIL_IDS = {
@@ -552,20 +569,27 @@ class Testing(defaults(production=True,admin=False)):
 			login=(None,'foo'),
 			key=(None,'mysecret'),
 			),
+		'voting': dict(
+			email='fnord@localhost',
+			name='Voting',
+			login=(None,'fnord'),
+			key=('foo@localhost','mysecret'),
+			templates=['vote'],
+			),
 		'register': dict(
 			email='fnord@localhost',
 			login=('foo@localhost','foo'),
 			templates=['register_confirm'],
 			),
 	}
+	EMAIL_QUEUE='crypto' # False=send directly, 'crypto'=only encrypted/signed, True=all
 	EMAIL_REGISTER_ID = 'portal' # id of key registry
 
 	EMAIL_CLIENTS = {
 		# client_id: {id:(recieve,sending(False=no,True=all templates,None=default tmpl),attachments)
-		'portal': {'portal':(True,None,True)},
-		'debug': {'portal':(True,True,True)},
+		'portal': {'portal':(True,True,True),'voting':(False,False,False)},
+		'voting': {'voting':(True,None,True)},
 	}
-
 	EMAIL_GPG_IMPORT_HOME = (site_root+'/ekklesia/tests/pubring.gpg',site_root+'/ekklesia/tests/secring0.gpg')
 	EMAIL_GPG_HOME = None # should not be used
 

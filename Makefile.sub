@@ -31,7 +31,7 @@ EOPT=$(patsubst %, -e %,$(EXCL))
 APPS := accounts
 EXTRA_APPS :=
 # for current migration
-APP := accounts
+APP :=
 
 EXTRA_CLEAN := local.db static.prod debug.log
 

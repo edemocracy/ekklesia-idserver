@@ -132,7 +132,7 @@ class ShareViewSet(ViewSet):
         from django.utils.http import http_date, quote_etag
         from calendar import timegm
         #print 'create',share, request.__dict__, format
-        obj = ShareObject(share=request.share,data=request.DATA,last_client=request.auth)
+        obj = ShareObject(share=request.share,data=request.data,last_client=request.auth)
         obj.save()
         location = request.build_absolute_uri(reverse('v1:share-detail',kwargs={'share':share,'pk':obj.no}))
         headers = {'Location':location,'ETag':quote_etag(str(obj.version)),
@@ -155,12 +155,12 @@ class ShareViewSet(ViewSet):
             try: pk = int(kwargs['pk'])
             except ValueError: return HttpResponse(status=403)
             if pk > request.share.maxno: return HttpResponse(status=403) # only allow deleted ids
-            obj = ShareObject(share=request.share,data=request.DATA)
+            obj = ShareObject(share=request.share,data=request.data)
             status = status.HTTP_201_CREATED
             """
         else:
             obj = request.share_obj
-            obj.data = request.DATA
+            obj.data = request.data
             code = status.HTTP_200_OK
         obj.save(client = request.auth)
         return Response(obj.data,status=code)
@@ -168,9 +168,10 @@ class ShareViewSet(ViewSet):
     @method_decorator(condition(etag_func=etag_detail, last_modified_func=modified_detail))
     def partial_update(self, request, share, pk, format=None):
         #print 'partial',share, pk, request.__dict__, format
+        from six import iteritems
         if request.share_obj is None: raise Http404
         obj = request.share_obj
-        for k,v in request.DATA.iteritems(): obj.data[k] = v
+        for k,v in iteritems(request.data): obj.data[k] = v
         obj.save(client = request.auth)
         return Response(obj.data)
 
@@ -271,7 +272,7 @@ class ListsView(APIView):
         from calendar import timegm
         from idapi.models import ApplicationUUID
         #print 'create',share, request.__dict__, format
-        data = request.DATA
+        data = request.data
         if not 'users' in data: raise Http404
         users = []
         for auid in data['users']:

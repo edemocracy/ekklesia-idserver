@@ -102,8 +102,8 @@ class MemberInvDatabase(MemberDatabase,InvitationDatabase):
         return InvitationDatabase.process_update(self,msg,input,output) or update
 
     def run(self, args=None): # pragma: no cover
-        from ekklesia.data import special_openwith
-        from ekklesia.backends import api_spec, dummy_context, session_context
+        from ekklesia.data import special_openwith, dummy_context
+        from ekklesia.backends import api_spec, session_context
         from ekklesia.mail import gpg_spec, smtp_spec
         from sqlalchemy import create_engine
         args, parser = self.init_run('joint',

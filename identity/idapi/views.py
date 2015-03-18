@@ -26,7 +26,7 @@ from django.core.urlresolvers import reverse
 
 from oauth2_provider.ext.rest_framework import TokenHasScope, OAuth2Authentication
 
-from idapi.models import UserList, Message, PublicKey
+from idapi.models import UserList, PublicKey
 from django.conf import settings
 
 from rest_framework.views import APIView
@@ -117,65 +117,57 @@ class UserMailsViewSet(ViewSet):
     parser_classes = (JSONParser,)
 
     def list(self, request, format=None):
+        from idapi.models import Message
         app = request.auth.application
-        user = request.user
         identities = self.allowed_identities(app)
-        if not identities: HttpResponse(status=403) # no permission
 
         incoming = request.GET.get('in',True)
         outgoing = request.GET.get('out',False)
         # hide encrypted mails
-        msgs = Message.objects.filter(user=user,email=True,crypto=False,identity__in=identities)
+        msgs = Message.objects.filter(user=request.user,email=True,crypto=False,identity__in=identities)
         if incoming and not outgoing: msgs = msgs.filter(outgoing=False)
         elif not incoming and outgoing: msgs = msgs.filter(outgoing=True)
         elif not (incoming or outgoing): return Response({})
         return Response({'items':[msg.id for msg in msgs.all()]})
 
     def create(self, request, format=None):
-        # FIXME error reports
-        from time import time as epochtime
-        from idapi.mails import create_mail
-        from ekklesia.mail import Template
-        user = request.user
-        app = request.auth.application
-        input = request.DATA
-        msg = create_mail(input,app,user)
-        if not msg:
-            raise Http404
-        else:
-            return Response({'msgid':msg.pk})
+        from idapi.mails import send_mail
+        return Response(send_mail(request.data,request.user,request.auth.application))
 
     def allowed_identities(self, app):
         import six
+        from rest_framework.exceptions import ValidationError, MethodNotAllowed
         clients = getattr(settings, 'EMAIL_CLIENTS', {})
         try: allowed = clients[app.client_id]
-        except: return None # no permission
+        except KeyError:
+            raise PermissionDenied(dict(error='client_not_permitted',
+                details='client does not have permission to use the email interface'))
         return [id for id,v in six.iteritems(allowed) if v[0]]
 
     def check_access(self, app, user, pk):
+        from idapi.models import Message
+        from rest_framework.exceptions import PermissionDenied
         identities = self.allowed_identities(app)
-        if not identities: return None
         msg = get_object_or_404(Message,id=pk)
         if msg.user != user or not msg.identity in identities or \
-            (msg.application and msg.application != app) or not msg.email or msg.crypto:
-            return None # no permission
+            (msg.application and msg.application != app) or not msg.email: # or msg.crypto
+            raise PermissionDenied()
         return msg
 
     def retrieve(self, request, pk, format=None):
+        from ekklesia.data import isotime
         app = request.auth.application
-        user = request.user
-        msg = self.check_access(app,user,pk)
-        if not msg: return HttpResponse(status=403) # no permission
-        data = {}
-        data.update(msg.data)
+        msg = self.check_access(app,request.user,pk)
+        data = dict(msg.data)
         data['type'] = 'outgoing' if msg.outgoing else 'incoming'
-        data['processed'] = msg.time
-        return Response(msg.data)
+        data['date'] = isotime(data['date'])
+        data['processed'] = isotime(msg.time)
+        data['status'] = dict(msg.STATUS_CHOICES)[msg.status]
+        return Response(data)
 
     def destroy(self, request, pk, format=None):
         app = request.auth.application
         user = request.user
         msg = self.check_access(app,user,pk)
-        if not msg: return HttpResponse(status=403) # no permission
         msg.delete()
         return Response({},status=status.HTTP_204_NO_CONTENT)

@@ -55,8 +55,7 @@ class Template(object):
     def _fill(self, level, **kwargs):
         from collections import Iterable
         from six import iteritems
-        vals = {}
-        vals.update(self.defaults)
+        vals = self.defaults.copy()
         vals.update(kwargs)
         assert self.keys <= set(vals.keys()), 'keys missing in format'
         # replace subs first
@@ -76,8 +75,7 @@ class Template(object):
                 if not isinstance(v,dict): # just a list
                     s += tmpl._fill(level+1,x=v,i=i+1,n=n,**{'i'+slevel:i+1,'n'+slevel:n,'x'+slevel:v})
                     continue
-                subvals = {}
-                subvals.update(vals)
+                subvals = vals.copy()
                 del subvals[key]
                 subvals.update({'i':str(i+1),'n':n,'i'+slevel:i+1,'n'+slevel:n})
                 subvals.update(v)
@@ -133,7 +131,6 @@ def gpg_key(config):
     if not sender: sender=('','')
     return {'default_key':sender[0],'passphrase':sender[1]}
 
-SMTPConfig = namedtuple("SMTPConfig", 'host port user password certfile keyfile ca_certs')
 smtp_defaults = dict(host='localhost', port=587, user=None, password=None, certfile=None, keyfile=None, ca_certs=None)
 smtp_spec="""
 [smtp]
@@ -147,14 +144,12 @@ ca_certs = string
 """
 
 def smtp_init(config):
-    tmp = smtp_defaults.copy()
-    tmp.update(config)
-    config = SMTPConfig(**tmp)
-    return SMTPOutput(host=config.host,port=config.port,
-        user=config.user.encode('ascii'),password=config.password.encode('ascii'),
-        certfile=config.certfile,keyfile=config.keyfile,ca_certs=config.ca_certs)
+    cfg = smtp_defaults.copy()
+    cfg.update(config)
+    return SMTPOutput(host=cfg['host'],port=cfg['port'],
+        user=cfg['user'].encode('ascii'),password=cfg['password'].encode('ascii'),
+        certfile=cfg['certfile'],keyfile=cfg['keyfile'],ca_certs=cfg['ca_certs'])
 
-IMAPConfig = namedtuple("IMAPConfig", 'host port user password cram_md5 certfile keyfile ca_certs')
 imap_defaults = dict(host='localhost', port=993, user=None, password=None, cram_md5=True,
         certfile=None, keyfile=None, ca_certs=None)
 imap_spec="""
@@ -170,12 +165,11 @@ ca_certs = string
 """
 
 def imap_init(config, keep=False, filter=True):
-    tmp = imap_defaults.copy()
-    tmp.update(config)
-    config = IMAPConfig(**tmp)
-    return IMAPSource(host=config.host,port=config.port,
-        keyfile=config.keyfile, certfile=config.certfile, ca_certs=config.ca_certs,
-        user=config.user,password=config.password,cram_md5=config.cram_md5,
+    cfg = imap_defaults.copy()
+    cfg.update(config)
+    return IMAPSource(host=cfg['host'],port=cfg['port'],
+        keyfile=cfg['keyfile'], certfile=cfg['certfile'], ca_certs=cfg['ca_certs'],
+        user=cfg['user'],password=cfg['password'],cram_md5=cfg['cram_md5'],
         keep=keep,filter=filter)
 
 def imap_same_login(a,b):
@@ -257,7 +251,7 @@ class IMAPSource(MessageSource):
             status, response = self.imap.uid('store',e_id, '+FLAGS', r'(\Flagged)')
             status, response = self.imap.uid('fetch',e_id, '(RFC822)')
             raw = response[0][1]
-            yield protect_mail(raw), flags
+            yield protect_mail(raw,sevenbit=False), flags
             if self.keep:
                 status,response = self.imap.uid('store',e_id, '-FLAGS', r'(\Flagged)')
             else:
@@ -328,7 +322,7 @@ class VirtualIMAP(MessageSource):
                     mail.add_flag('F')
             else: flags = ''
             if not self.readonly: self.mailbox[key] = mail
-            yield protect_mail(mail),flags
+            yield protect_mail(mail,sevenbit=False),flags
             if self.readonly: continue
             if self.keep:
                 if haveflags:

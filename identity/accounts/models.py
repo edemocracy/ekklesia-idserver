@@ -36,16 +36,26 @@ from django_countries.fields import CountryField
 #from phonenumber_field.modelfields import PhoneNumberField
 from ekklesia.models import ModelDiffMixin
 
-def notify_backends(status,uuid):
+def send_broker_msg(msg, exchange, queue, connection=None):
     if not settings.BROKER_URL: return
-    import celery
     from kombu import Connection, Exchange, Queue, Producer
-    exchange = Exchange(settings.BACKEND_EXCHANGE, 'fanout')
-    queue = Queue(settings.BACKEND_QUEUE, exchange=exchange)
-    msg = dict(format='member',version=(1,0),status=status,uuid=uuid)
+    exchange = Exchange(exchange, 'fanout')
+    queue = Queue(queue, exchange=exchange)
     print 'sending msg', msg
-    with celery.current_app.pool.acquire(timeout=1) as conn:
+    if connection:
         conn.Producer(serializer='json').publish(msg, exchange=exchange, declare=[queue])
+        return
+    if settings.USE_CELERY:
+        import celery
+        conn_context = celery.current_app.pool.acquire(timeout=1)
+    else:
+        conn_context = Connection(settings.BROKER_URL,ssl=settings.BROKER_USE_SSL)
+    with conn_context as conn:
+        conn.Producer(serializer='json').publish(msg, exchange=exchange, declare=[queue])
+
+def notify_backends(status,uuid):
+    msg = dict(format='member',version=(1,0),status=status,uuid=uuid)
+    send_broker_msg(msg, settings.BACKEND_EXCHANGE, settings.BACKEND_QUEUE)
 
 #-------------------------------------------------------------------------------------
 

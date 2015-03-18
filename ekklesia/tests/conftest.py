@@ -82,7 +82,7 @@ def keys(request):
     def fin():
         for tmp in keyrings+secrings: os.unlink(tmp)
     if generate: request.addfinalizer(fin)
-    return {'gpg1':gpg1, 'gpg2':gpg2, 'gpg3':gpg3, 'pubkey1':pubkey1, 'pubkey2':pubkey2, 'pubkey3':pubkey3, 'secrings':secrings}
+    return {'gpg1':gpg1, 'gpg2':gpg2, 'gpg3':gpg3, 'pubkey1':pubkey1, 'pubkey2':pubkey2, 'pubkey3':pubkey3, 'secrings':secrings, 'fingerprints':[key1,key2,key3]}
 
 @fixture(scope='module')
 def gpgsender(keys):
@@ -111,10 +111,11 @@ def bilateral(request,keys):
     gpg1.import_keys(keys['pubkey2']) # sender knows receiver pubkey
     gpg2.import_keys(keys['pubkey1'])
     gpg2.import_keys(keys['pubkey2'])
-    id1 = GPGMIME(gpg1,default_key=(sender,passphrase))
-    id2 = GPGMIME(gpg2,default_key=receiver)
+    fingerprints = keys['fingerprints'][:2]
+    id1 = GPGMIME(gpg1,default_key=(fingerprints[0],passphrase))
+    id2 = GPGMIME(gpg2,default_key=fingerprints[1])
     def fin():
         import os
         for tmp in keyrings: os.unlink(tmp)
     request.addfinalizer(fin)
-    return {'id1':id1,'id2':id2,'gpg1':gpg1,'gpg2':gpg2}
+    return {'id1':id1,'id2':id2,'gpg1':gpg1,'gpg2':gpg2,'fingerprints':fingerprints}

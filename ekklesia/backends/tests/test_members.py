@@ -265,10 +265,10 @@ def test_import_delete(member_db):
 def test_import_crypt(empty_db,bilateral):
     db = empty_db
     id2 = bilateral['id2']
-    result = id2.encrypt_str(members_name,sender,sign=True)
+    result = id2.encrypt_str(members_name,[sender],sign=True)
     assert result.ok
     memfile = StringIO(str(result))
-    result = id2.encrypt_str(deps_name,sender,sign=True)
+    result = id2.encrypt_str(deps_name,[sender],sign=True)
     assert result.ok
     depfile = StringIO(str(result))
     db.gpg = bilateral['id1']
@@ -506,7 +506,7 @@ def test_sync_crypto(bilateral,crypto_db):
     from ekklesia.data import json_encrypt, json_decrypt
     db = crypto_db
     id2 = bilateral['id2']
-    input, result = json_encrypt(members_down,id2,sender,True)
+    input, result = json_encrypt(members_down,id2,[sender],True)
     assert result.ok
     input = StringIO(json.dumps(input))
     memfile, depfile, emails = StringIO(), StringIO(), StringIO()

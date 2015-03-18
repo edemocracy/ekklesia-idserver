@@ -225,7 +225,7 @@ def test_import_delete(inv_db):
 def test_import_crypt(empty_db,bilateral):
     db = empty_db
     id2 = bilateral['id2']
-    result = id2.encrypt_str(invitations,sender,sign=True)
+    result = id2.encrypt_str(invitations,[sender],sign=True)
     assert result.ok
     db.gpg = bilateral['id1']
     db.import_invitations(StringIO(str(result)),decrypt=True,verify=receiver)
@@ -534,7 +534,7 @@ def test_sync_crypto(bilateral,crypto_db):
     db.import_invitations(input,allfields=True,format='json')
 
     id2 = bilateral['id2']
-    input, result = json_encrypt(inv_down,id2,sender,True)
+    input, result = json_encrypt(inv_down,id2,[sender],True)
     assert result.ok
     input = StringIO(json.dumps(input))
     output = StringIO()

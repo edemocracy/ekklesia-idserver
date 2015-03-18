@@ -314,7 +314,7 @@ class MemberDatabase(AbstractDatabase):
                 init_object(obj,**kwargs)
 
             def __repr__(obj):
-                return repr_object(obj,self.department_columns+['parent'])
+                return repr_object(obj,list(self.department_columns)+['parent'])
 
         class Member(self.Base):
             if not reflect:
@@ -372,11 +372,14 @@ class MemberDatabase(AbstractDatabase):
 
     def reflect_classes(self):
         from ekklesia.backends import reflect_class
-        self.member_columns, self.member_types = reflect_class(self.Member)
-        self.department_columns, self.department_types = reflect_class(self.Department)
+        from ekklesia.data import frozendict
+        self.member_columns, member_types = reflect_class(self.Member)
+        self.department_columns, department_types = reflect_class(self.Department)
         deptype = int if self.department_spec == 'number' else str
-        self.member_types['department'] = deptype
-        self.department_types['parent'] = deptype
+        member_types['department'] = deptype
+        department_types['parent'] = deptype
+        self.member_types = frozendict(member_types)
+        self.department_types = frozendict(department_types)
 
     def email_change(self,member,data):
         "called before email of member changes"
@@ -412,7 +415,7 @@ class MemberDatabase(AbstractDatabase):
             return dep
 
         if depfile and import_dep and self.Department: # import separate department data
-            columns = self.department_columns + ['parent']
+            columns = list(self.department_columns)+['parent']
             if allfields: reqcolumns = columns
             else: reqcolumns = ('name','parent')
             reader = DataTable(columns,coltypes=self.department_types,required=reqcolumns,
@@ -453,7 +456,7 @@ class MemberDatabase(AbstractDatabase):
             dquery.update(dict(depth=None)) # reset all depths
 
         Member = self.Member
-        columns = self.member_columns + ['department']
+        columns = list(self.member_columns)+['department']
         if allfields: reqcolumns = columns
         else: reqcolumns = ['uuid','email']
         if not import_dep and 'department' in self.member_import and not 'parent' in columns:
@@ -560,7 +563,7 @@ class MemberDatabase(AbstractDatabase):
         session = self.session
         Department, Member = self.Department, self.Member
         if allfields:
-            columns = self.member_columns+['department']
+            columns = list(self.member_columns)+['department']
             dataformat = 'member'
         else:
             columns = ('uuid','email')
@@ -861,8 +864,8 @@ class MemberDatabase(AbstractDatabase):
             if 'location' in self.member_import: self.save_geolut()
 
     def run(self, args=None): # pragma: no cover
-        from ekklesia.data import special_openwith
-        from ekklesia.backends import api_spec, dummy_context, session_context
+        from ekklesia.data import special_openwith, dummy_context
+        from ekklesia.backends import api_spec, session_context
         from ekklesia.mail import gpg_spec, smtp_spec
         from sqlalchemy import create_engine
         import contextlib

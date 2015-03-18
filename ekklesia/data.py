@@ -21,6 +21,9 @@
 import csv
 import contextlib
 
+@contextlib.contextmanager
+def dummy_context(): yield
+
 def tmpfname():
     "name of a permanent temporary file. don't forget to unlink!"
     import tempfile
@@ -28,6 +31,50 @@ def tmpfname():
     name = tmp.name
     tmp.close()
     return name
+
+def hashable_dict(d):
+    return frozenset(sorted(d.items()))
+
+class frozendict(dict):
+    #http://code.activestate.com/recipes/414283/
+    __slots__ = ('_hash',)
+    def _blocked_attribute(obj):
+        raise AttributeError, "A frozendict cannot be modified."
+    _blocked_attribute = property(_blocked_attribute)
+
+    __delitem__ = __setitem__ = clear = _blocked_attribute
+    pop = popitem = setdefault = update = _blocked_attribute
+
+    def __new__(cls, *args, **kwargs):
+        new = dict.__new__(cls)
+        dict.__init__(new, *args, **kwargs)
+        return new
+
+    def __init__(self, *args):
+        pass
+
+    def __hash__(self):
+        rval = getattr(self, '_hash', None)
+        if rval is None:
+            rval = self._hash = hash(hashable_dict(d))
+        return rval
+
+    def __repr__(self):
+        return "frozendict(%s)" % dict.__repr__(self)
+
+def freeze(obj, deep=True):
+    "convert obj recursivley to immutable objects"
+    if isinstance(obj,list):
+        if deep: return (freeze(sub,deep) for sub in obj)
+        return tuple(obj)
+    elif type(obj)==dict:
+        from six import iteritems
+        if deep: return frozendict(( (k,freeze(v,deep)) for k,v in iteritems(obj) ))
+        return frozendict(obj)
+    elif type(obj)==set:
+        if deep: return frozenset((freeze(sub,deep) for sub in obj))
+        return frozenset(obj)
+    return obj
 
 def init_object(obj, **kwargs):
     "set object attributes from args"
@@ -108,7 +155,7 @@ def json_decrypt(data, gpg):
     return data, encrypted, signed, result
 
 def json_encrypt(data, gpg, encrypt=False,sign=True, output=None):
-    "return a JSON GPG container and result object, encrypt=bool or receivers keyid"
+    "return a JSON GPG container and result object, encrypt=bool or list of receivers"
     import json
     if output is None: output = {}
     output.update({'format':'pgp-container','version':[1,0],'encrypted':bool(encrypt),'signed':sign})
@@ -156,6 +203,17 @@ TIME_ISO8601 = "%H:%M:%S"
 DATE_ISO8601 = "%Y-%m-%d"
 DATETIME_ISO8601 = DATE_ISO8601+"T"+TIME_ISO8601
 
+def isotime(data=None):
+    import datetime, time
+    if data is None: data = datetime.datetime.utcnow()
+    ftype = type(data)
+    if ftype in (float,int): return time.strftime(DATETIME_ISO8601,time.gmtime(data))
+    elif ftype==datetime.datetime: return data.strftime(DATETIME_ISO8601)
+    elif ftype==datetime.date: return data.strftime(DATE_ISO8601)
+    elif ftype==datetime.time: return data.strftime(TIME_ISO8601)
+    elif ftype==time.struct_time: return time.strftime(DATETIME_ISO8601,data)
+    return None
+
 def decode_field(data,ftype):
     import datetime, time
     if data is None or data=='': return None
@@ -174,11 +232,10 @@ def decode_field(data,ftype):
     return data
 
 def encode_field(data,ftype,format='csv'):
-    import datetime
+    import datetime, time
     if data is None: return None
-    elif ftype==datetime.date: return data.strftime(DATE_ISO8601)
-    elif ftype==datetime.time: return data.strftime(TIME_ISO8601)
-    elif ftype==datetime.datetime: return data.strftime(DATETIME_ISO8601)
+    if ftype in (datetime.datetime,datetime.time,datetime.date,time.struct_time):
+        return isotime(data)
     elif ftype==str: return str(data)
     return data
 
@@ -216,7 +273,7 @@ class DataTable(object):
     def __init__(self,columns,coltypes=None,required=True,ignore=True,remap=None,gpg=None,
         dataformat='data',fileformat='csv',version=(1,0),pretty=True,dialect=csv.excel):
         self.columns = columns # supported columns
-        assert not coltypes or type(coltypes)==dict, 'invalid coltypes'
+        assert not coltypes or isinstance(coltypes,dict), 'invalid coltypes'
         assert fileformat in ('csv','json','jsondict','json-file','jsondict-file'), 'invalid fileformat'
         self.coltypes = coltypes # and their types
         self.required = required # required columns
@@ -242,8 +299,8 @@ class DataTable(object):
     def get_columns(self): return self.read_columns
 
     def open(self,f=None,mode='r',encrypt=False,sign=False):
-        """write: encrypt = list of recipients, sign = sender or bool(default_key)
-        read: encrypt = encrypted data expected, sign= expected key or True=defaultkey
+        """write: encrypt =bool or list of recipients, sign = sender or bool(default_key)
+        read: encrypt = bool encrypted data expected, sign= expected key or True=defaultkey
         """
         from six.moves import StringIO
         from six import next, PY3, BytesIO
@@ -406,7 +463,7 @@ class DataTable(object):
         for field in self.columns:
             x = None
             ofield = self.remap.get(field,field)
-            if type(data)==dict: 
+            if isinstance(data,dict):
                 if ofield in extra: x = extra[ofield]
                 elif ofield in data: x = data[ofield]
                 else: assert self.ignore or not field in self.required, "field '%s' missing"

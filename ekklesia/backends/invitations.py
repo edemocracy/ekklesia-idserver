@@ -230,7 +230,9 @@ class InvitationDatabase(AbstractDatabase):
 
     def reflect_classes(self):
         from ekklesia.backends import reflect_class
-        self.invite_columns, self.invite_types = reflect_class(self.Invitation)
+        from ekklesia.data import frozendict
+        self.invite_columns, invite_types = reflect_class(self.Invitation)
+        self.invite_types = frozendict(invite_types)
 
     def import_invitations(self,input,decrypt=False,verify=False,
             allfields=False,sync=False,dryrun=False,format='csv'):
@@ -245,7 +247,7 @@ class InvitationDatabase(AbstractDatabase):
         membercls = self.member_class
         columns = self.invite_columns
         if membercls:
-            columns = columns+['uuid']
+            columns = list(columns)+['uuid']
             columns.remove('id')
         if allfields: reqcolumns = columns
         elif membercls: reqcolumns = ['uuid']
@@ -340,12 +342,12 @@ class InvitationDatabase(AbstractDatabase):
         membercls = self.member_class
         if allfields:
             if membercls:
-                columns = ['uuid']+self.invite_columns
+                columns = ['uuid']+list(self.invite_columns)
                 columns.remove('id')
-            else: columns = list(self.invite_columns)
+            else: columns = self.invite_columns
         else:  # restricted
             columns = ['uuid','code']
-            if not membercls: columns = columns+['email']
+            if not membercls: columns += ['email']
         if encrypt: encrypt = [self.io_key]
         writer = DataTable(columns,coltypes=self.invite_types,gpg=self.gpg,
             dataformat='invitation',fileformat=format,version=self.version)
@@ -676,8 +678,8 @@ class InvitationDatabase(AbstractDatabase):
             self.reset_invitations(f,code=args.invite,uuids=args.uuid,dryrun=args.dryrun)
 
     def run(self, args=None): # pragma: no cover
-        from ekklesia.data import special_openwith
-        from ekklesia.backends import api_spec, dummy_context, session_context
+        from ekklesia.data import special_openwith, dummy_context
+        from ekklesia.backends import api_spec, session_context
         from ekklesia.mail import gpg_spec, smtp_spec
         from sqlalchemy import create_engine
         args, parser = self.init_run('invitations','invitation script for members',args)

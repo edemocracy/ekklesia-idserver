@@ -23,6 +23,7 @@ from django.utils import timezone
 from django.db import models
 from django.db.models.signals import post_save, post_delete
 from django.dispatch.dispatcher import receiver
+from django.db import transaction
 
 from collections import OrderedDict
 from django_extensions.db.fields import UUIDField
@@ -50,8 +51,6 @@ class IDApplication(AbstractApplication):
     push_secret = models.CharField(max_length=255, blank=True,
                                      default=generate_client_secret)
     two_factor_auth = models.NullBooleanField(_('Whether to require two factor authentication'), default=False, null=True)
-
-from django.db import transaction
 
 orderedJSON = {'object_pairs_hook': OrderedDict}
 
@@ -258,7 +257,7 @@ class Message(models.Model):
     email = models.BooleanField(_('whether the message is an email'), default=True)
     status = models.IntegerField(_('status code'),choices=STATUS_CHOICES,default=QUEUED)
     time = models.DateTimeField(_('time send/received'), default=timezone.now)
-    locked = models.BooleanField(_('whether the message is currently processed'), default=False)
+    locked = models.DateTimeField(_('when the message has been locked'), default=None, null=True)
     data = JSONField(_('message data'))
 
 class PublicKey(models.Model):
@@ -280,10 +279,13 @@ class PublicKey(models.Model):
         (CONFIRMED, 'confirmed'),
         (TRUSTED, 'trusted'),
     )
+    TRUST_LUT = dict(i[::-1] for i in TRUST_CHOICES)
+    # unique = user,active
     user = models.ForeignKey(Account,related_name='publickeys')
-    keytype = models.PositiveIntegerField(_('key type'),choices=KEY_CHOICES,default=NONE)
+    keytype = models.PositiveIntegerField(_('key type'),choices=KEY_CHOICES,default=PGP)
     trust = models.PositiveIntegerField(_('key trust'),choices=TRUST_CHOICES,default=UNCONFIRMED)
     expires = models.DateTimeField(_('expiration date'), blank=True, null=True)
     active = models.BooleanField(_('whether this is the active key for the user'), default=False)
+    fingerprint = models.CharField(_('fingerprint'),max_length=64) # sha1=40, sha256=64
     data = JSONField(_('key data'),blank=True, null=True)
-    # keydata = ascii/base64, confirmcode=string (if unconfirmed), fingerprint=string, identities=[emails]
+    # keydata = ascii/base64, confirmcode=string (if unconfirmed), identities=[emails]

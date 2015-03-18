@@ -58,7 +58,7 @@ class Obj:
 class TestData:
     def json(self,ids,encrypt,sign):
         plain = not encrypt and not sign
-        c, result = json_encrypt(json_data,ids['id1'],receiver if encrypt else False,sign)
+        c, result = json_encrypt(json_data,ids['id1'],[receiver] if encrypt else False,sign)
         assert c and plain or result
         d, encrypted, signed, result = json_decrypt(c,ids['id2'])
         assert encrypted==encrypt and signed==sign and (result is None)==plain
@@ -81,25 +81,25 @@ class TestData:
         assert (d, encrypted, signed, result.valid) == (None, False, True, False)
     def test_json_bad_signenc(self,bilateral,gpgreceiver):
         # id1 encrypt+sign for id2, but id2 doesn't know id1
-        c, result = json_encrypt(json_data,bilateral['id1'],receiver,True)
+        c, result = json_encrypt(json_data,bilateral['id1'],[receiver],True)
         assert c and result
         d, encrypted, signed, result = json_decrypt(c,gpgreceiver)
         assert (d, encrypted, signed, result.valid) == (None, True, True, False)
     def test_json_bad_enc(self,bilateral):
         # id1 encrypt for id1, but id2 cant decrypt id1
-        c, result = json_encrypt(json_data,bilateral['id1'],sender,False)
+        c, result = json_encrypt(json_data,bilateral['id1'],[sender],False)
         assert c and result
         d, encrypted, signed, result = json_decrypt(c,bilateral['id2'])
         assert (d, encrypted, signed, result.valid) == (None, True, False, False)
     def test_json_bad_encsign(self,bilateral):
         # id1 encrypt+sign for id1, but id2 cant decrypt id1
-        c, result = json_encrypt(json_data,bilateral['id1'],sender,True)
+        c, result = json_encrypt(json_data,bilateral['id1'],[sender],True)
         assert c and result
         d, encrypted, signed, result = json_decrypt(c,bilateral['id2'])
         assert (d, encrypted, signed, result.valid) == (None, True, True, False)
     def test_json_bad_encsign2(self,bilateral,gpgreceiver):
         # id1 encrypt+sign for id1, but id2 doesn't know id1
-        c, result = json_encrypt(json_data,bilateral['id1'],sender,True)
+        c, result = json_encrypt(json_data,bilateral['id1'],[sender],True)
         assert c and result
         d, encrypted, signed, result = json_decrypt(c,gpgreceiver)
         assert (d, encrypted, signed, result.valid) == (None, True, True, False)
@@ -112,7 +112,7 @@ class TestData:
         t = DataTable(columns,coltypes=coltypes,gpg=ids['id1'],fileformat=fmt,ignore=ignore,required=required)
         if fmt in ('json','jsondict'): f = {}
         else: f = StringIO()
-        t.open(f,'w',receiver if encrypt else False,sign)
+        t.open(f,'w',[receiver] if encrypt else False,sign)
         if obj:
             t.write(Obj(a=0))
             t.write(Obj(a=1))

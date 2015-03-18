@@ -214,13 +214,13 @@ class MembersView(APIView):
     parser_classes = (JSONParser,)
 
     def get(self, request, format=None):
-        onlynew = request.GET.get('new','').lower() in ('1','t','true','y','yes')
+        onlynew = request.query_params.get('new','').lower() in ('1','t','true','y','yes')
         members = get_members(onlynew=onlynew)
         return Response(members)
 
     def post(self, request, format=None):
-        members = request.DATA['members']
-        departments = request.DATA['departments']
+        members = request.data['members']
+        departments = request.data['departments']
         ok = update_members(members,departments)
         return Response({'status': ok})
 
@@ -290,12 +290,12 @@ class InvitationsView(APIView):
     parser_classes = (JSONParser,)
 
     def get(self, request, format=None):
-        onlychanged = request.GET.get('changed','').lower() in ('1','t','true','y','yes')
+        onlychanged = request.query_params.get('changed','').lower() in ('1','t','true','y','yes')
         invitations = get_invitations(onlychanged=onlychanged)
         return Response(invitations)
 
     def post(self, request, format=None):
-        invitations = request.DATA
+        invitations = request.data
         ok = update_invitations(invitations)
         return Response({'status': ok})
 

@@ -27,7 +27,7 @@ from __future__ import print_function, absolute_import
 from ekklesia.mail import gpg_defaults, gpg_init
 from ekklesia import FormattedWarning
 from collections import namedtuple
-import six, contextlib
+import six
 
 class FileMissingWarning(FormattedWarning): pass
 class UnknownFieldsWarning(FormattedWarning): pass
@@ -87,6 +87,7 @@ def api_init(config,**kwargs):
 
 def reflect_class(cls):
     "get columns names (excluding primary and foreign keys) and types"
+    from ekklesia.data import frozendict
     columns = cls.__table__.columns
     allcols = [c.name for c in columns]
     ctypes = []
@@ -96,10 +97,7 @@ def reflect_class(cls):
         ctypes.append(t)
     types = dict(zip(allcols,ctypes))
     cols = [c.name for c in columns if not c.foreign_keys]
-    return cols, types
-
-@contextlib.contextmanager
-def dummy_context(): yield
+    return tuple(cols), types
 
 class session_context(object):
     def __init__(self,db): self.db = db

@@ -86,20 +86,27 @@ def invitations(db):
 def apps(db,accounts):
     from idapi.models import IDApplication
     portal = IDApplication.objects.create(name='portal',client_id='portal',client_secret='secret',user=accounts['admin'],
-        redirect_uris="https://localhost/accounts/auth", client_type=IDApplication.CLIENT_CONFIDENTIAL, 
+        redirect_uris="https://localhost/accounts/auth", client_type=IDApplication.CLIENT_CONFIDENTIAL,
+        authorization_grant_type=IDApplication.GRANT_AUTHORIZATION_CODE,
+        permitted_scopes='unique member profile mail',
+        required_scopes='unique member',autopermit_scopes='unique member',
+        push_uris='',push_secret='', two_factor_auth=False,
+    )
+    voting = IDApplication.objects.create(name='voting',client_id='voting',client_secret='secret',user=accounts['admin'],
+        redirect_uris="https://localhost/accounts/auth", client_type=IDApplication.CLIENT_CONFIDENTIAL,
         authorization_grant_type=IDApplication.GRANT_AUTHORIZATION_CODE,
         permitted_scopes='unique member profile mail',
         required_scopes='unique member',autopermit_scopes='unique member',
         push_uris='',push_secret='', two_factor_auth=False,
     )
     debug = IDApplication.objects.create(name='debug',client_id='debug',client_secret='debug',user=accounts['admin'],
-        redirect_uris='', client_type=IDApplication.CLIENT_CONFIDENTIAL, 
+        redirect_uris='', client_type=IDApplication.CLIENT_CONFIDENTIAL,
         authorization_grant_type=IDApplication.GRANT_PASSWORD,
         permitted_scopes='unique member profile mail',
         required_scopes='unique member',
         push_uris='',push_secret='', two_factor_auth=False,
     )
-    return dict(portal=portal,debug=debug)
+    return dict(portal=portal,voting=voting,debug=debug)
 
 @fixture(scope='session')
 def tokens(db,accounts,apps):
@@ -109,7 +116,10 @@ def tokens(db,accounts,apps):
     token = AccessToken.objects.create(user=accounts['member1'], token='1234567890',
                               application=apps['portal'],scope='unique member profile mail',
                               expires=timezone.now()+datetime.timedelta(days=1))
-    return dict(member1=token.token)
+    token2 = AccessToken.objects.create(user=accounts['member1'], token='0123456789',
+                              application=apps['voting'],scope='unique member profile mail',
+                              expires=timezone.now()+datetime.timedelta(days=1))
+    return dict(member1=token.token,vmember1=token2.token)
 
 def basic_auth(user,password):
     import base64

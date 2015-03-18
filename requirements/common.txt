@@ -1,22 +1,22 @@
 # all
 six>=1.8
-gnupg>=1.3.2
+gnupg>=2.0.0
 #kryptomime>=0.5.0
 https://github.com/ttanner/kryptomime/archive/master.zip
 psutil>=1.2.1
-requests>=2.4, >=2.4.2
+requests>=2.4.2
 
 # backends
-sqlalchemy
+sqlalchemy>=0.9
 pytz
 configobj>=5.0, >=5.0.5
 python-daemon>=2.0.5
 kombu>=3.0
 
 # django
-django>=1.7.5, <1.8
+django>=1.7.6, <1.8
 django-mptt
-django-extensions>=1.4,>=1.4.7
+django-extensions>=1.4.7
 django-configurations
 Pillow
 pyjade>=3.0
@@ -25,12 +25,11 @@ django-endless-pagination
 django-cors-headers
 django-crispy-forms
 django-oauth-toolkit
-https://github.com/tomchristie/django-rest-framework/archive/version-3.1.zip
-#djangorestframework>=3.1
+djangorestframework>=3.1
 #djangorestframework-digestauth
 django-recaptcha
 django_admin_bootstrapped
-django-celery
+celery>=3.1
 django-otp
 jsonfield>=1.0
 django-countries
