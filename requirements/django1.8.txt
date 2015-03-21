@@ -1,0 +1,3 @@
+https://github.com/jezdez/django-configurations/archive/master.zip
+https://github.com/django-mptt/django-mptt/archive/master.zip
+https://github.com/pytest-dev/pytest-django/archive/master.zip
