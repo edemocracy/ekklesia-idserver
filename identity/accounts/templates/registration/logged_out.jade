@@ -1,6 +1,5 @@
 extends base
 -load i18n
--load url from future
 
 block header_title
     -trans 'Logged out'
@@ -11,7 +10,7 @@ block content
     h1 You've been logged out.
     p
         | Thanks for stopping by; when you come back, don't forget to 
-        a(href="{% url 'accounts:login' %}") 
+        a(href="{% url 'accounts:index' %}")
             -trans 'log in'
         |  again.
     p

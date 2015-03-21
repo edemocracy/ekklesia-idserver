@@ -22,7 +22,7 @@ dummy: all
 basicclean:
 	@-find . \( -name "__pycache__" -or -name ".cache" \) -exec rm -rvf "{}" \;
 	@-find . \( -name '*~' -or -name '*.py[co]' -or -name '._*' -or -name '.coverage' \) -exec rm -rvf "{}" \;
-	@-rm -rvf $(JADE_OUT) $(EXTRA_CLEAN)
+	@-rm -rvf $(JADE_OUT) $(SASS_OUT) $(EXTRA_CLEAN)
 
 %.html: %.jade
 	pyjade -e html $< | sed "s/|__pyjade_iter:1//" > $@

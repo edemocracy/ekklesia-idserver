@@ -428,7 +428,7 @@ def defaults(production=False,admin=False,site=0):
 
 		# own gnupg key (id,passphrase) for signing and decryption
 		API_GNUPG_KEY = None
-		# gnupg keys backend:(id,passphrase) for verfication and encryption
+		# gnupg keys backend:id for verfication and encryption
 		API_BACKEND_KEYS = {}
 
 		REGISTRATION_OPEN = True

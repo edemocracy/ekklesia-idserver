@@ -21,9 +21,7 @@
 from django.conf.urls import patterns, include, url
 from django.conf import settings
 from django.conf.urls.static import static
-
 from django.contrib import admin
-admin.autodiscover()
 
 from accounts.admin import verification_site
 import accounts.views

@@ -42,7 +42,7 @@ def send_broker_msg(msg, exchange, queue, connection=None):
     exchange = Exchange(exchange, 'fanout')
     queue = Queue(queue, exchange=exchange)
     if connection:
-        conn.Producer(serializer='json').publish(msg, exchange=exchange, declare=[queue])
+        connection.Producer(serializer='json').publish(msg, exchange=exchange, declare=[queue])
         return
     if settings.USE_CELERY:
         import celery
@@ -163,7 +163,7 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
 
     status = models.PositiveIntegerField(_('user status'),choices=STATUS_CHOICES,default=GUEST)
     uuid = UUIDField(_('Member UUID'),unique=True,auto=False,blank=True,null=True) # for sync with external DB, empty if non-member
-    nested_groups = TreeManyToManyField('NestedGroup',blank=True,null=True, verbose_name=_('nested groups the users belongs to'))
+    nested_groups = TreeManyToManyField('NestedGroup',blank=True, verbose_name=_('nested groups the users belongs to'))
 
     verified_by = models.ManyToManyField("self",through="Verification",symmetrical=False,related_name='has_verified')
     verified = models.BooleanField(_('verified'), default=False,

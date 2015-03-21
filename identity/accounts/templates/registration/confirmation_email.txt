@@ -1,4 +1,3 @@
-{% load url from future %}
 {% load humanize %}
 Someone, hopefully you, signed up for a new account at Ekklesia using this email address. If it was you, and you'd like to activate and use your account, click the link below or copy and paste it into your web browser's address bar:
 

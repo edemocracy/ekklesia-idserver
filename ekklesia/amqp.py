@@ -32,18 +32,22 @@ def parse_broker(broker):
         for key,value in iteritems(query):
             value = value[0]
             if key=='ssl_version':
-                value = dict(TLSv1=ssl.PROTOCOL_TLSv1,TLSv1_1=ssl.PROTOCOL_TLSv1_1,
-                    TLSv1_2=ssl.PROTOCOL_TLSv1_2)[value]
+                try:
+                    from ssl import PROTOCOL_TLSv1,PROTOCOL_TLSv1_1,PROTOCOL_TLSv1_2
+                    value = dict(TLSv1=PROTOCOL_TLSv1,TLSv1_1=PROTOCOL_TLSv1_1,
+                        TLSv1_2=PROTOCOL_TLSv1_2)[value]
+                except ImportError:
+                    value = dict(TLSv1=ssl.PROTOCOL_TLSv1)[value]
             elif key=='ssl_validation':
                 value = dict(ignore=ssl.CERT_NONE,optional=ssl.CERT_OPTIONAL,
                     required=ssl.CERT_REQUIRED)[value]
                 key = 'cert_reqs'
             else:
-                 k = dict(ssl_cacert='ca_certs',ssl_cert='certfile',ssl_key='keyfile').get(key)
-                 if not k:
+                k = dict(ssl_cacert='ca_certs',ssl_cert='certfile',ssl_key='keyfile').get(key)
+                if not k:
                     opts[key] = value
                     continue
-                 key = k
+                key = k
             sslopt[key] = value
         opts['ssl'] = sslopt
         query = opts

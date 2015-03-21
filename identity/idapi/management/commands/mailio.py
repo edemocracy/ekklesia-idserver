@@ -78,7 +78,7 @@ class Command(BaseCommand):
     def worker(self,incoming=False,outgoing=False,register=False,crypto=False,
         once=False,dryrun=False,send=True,period=0):
         import time, celery, socket, ssl
-        from kombu import Connection, Exchange, Queue, Producer, Consumer
+        from kombu import Connection
         from idapi.mails import save_mail, send_mails, get_mails, process_crypto, process_register
 
         if not (incoming or outgoing or register or crypto):

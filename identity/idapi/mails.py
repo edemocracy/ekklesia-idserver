@@ -150,23 +150,25 @@ def update_keyrings(debug_gpg=None,debug_import=None):
     # sync pubkeys
     from idapi.models import PublicKey
     from django.utils import timezone
+    from django.db import transaction
 
     pubids = []
-    for key in PublicKey.objects.select_for_update().filter(active=True,keytype=PublicKey.PGP):
-        data = key.data
-        if not data: continue
-        fingerprint = key.fingerprint
-        keyid,info = find_key(fingerprint,pubkeys)
-        if key.expires and key.expires < timezone.now():
-            log.debug('key %s expired on %s', fingerprint,key.expires)
-            key.active = False
-            key.trust = PublicKey.DELETED
-            key.save() # key will be deleted in next step
-            continue
-        if not keyid:
-            log.debug('importing pub %s', fingerprint)
-            gpg.import_keys(data['keydata'])
-        pubids.append(fingerprint)
+    with transaction.atomic():
+        for key in PublicKey.objects.select_for_update().filter(active=True,keytype=PublicKey.PGP):
+            data = key.data
+            if not data: continue
+            fingerprint = key.fingerprint
+            keyid,info = find_key(fingerprint,pubkeys)
+            if key.expires and key.expires < timezone.now():
+                log.debug('key %s expired on %s', fingerprint,key.expires)
+                key.active = False
+                key.trust = PublicKey.DELETED
+                key.save() # key will be deleted in next step
+                continue
+            if not keyid:
+                log.debug('importing pub %s', fingerprint)
+                gpg.import_keys(data['keydata'])
+            pubids.append(fingerprint)
     for fingerprint in pubkeys.fingerprints:
         if fingerprint in pubids or fingerprint in secids: continue
         log.debug('deleting pub %s', fingerprint)
@@ -642,7 +644,7 @@ def save_mail(mail, identity, idemail, crypto, gpg, skey, notify=None):
                 decrypt_background.delay(msg.pk) # start task
             # otherwise decrypt in mailio task
         else: # ready for clients
-            from account.models import send_broker_msg
+            from accounts.models import send_broker_msg
             msg = dict(format='mail',version=(1,0),msgid=msg.pk)
             send_broker_msg(msg, settings.MAILIN_EXCHANGE, settings.MAILIN_QUEUE,connection=notify)
     return True

@@ -20,7 +20,6 @@
 
 from django.contrib.auth.backends import ModelBackend
 from django.contrib.auth import get_user_model
-User = get_user_model()
 
 class UserOrEmailAuthBackend(ModelBackend):
     """
@@ -34,6 +33,7 @@ class UserOrEmailAuthBackend(ModelBackend):
     def authenticate(self, username=None, password=None, **kwargs):
         #If username is an email address, then try to pull it up
         from django.core.validators import email_re
+        User = get_user_model()
         if email_re.search(username):
             try:
                 user = User.objects.get(email__iexact=username)

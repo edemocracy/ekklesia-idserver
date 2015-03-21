@@ -141,7 +141,7 @@ class MessageAdmin(admin.ModelAdmin):
 
 @admin.register(models.PublicKey)
 class PublicKeyAdmin(admin.ModelAdmin):
-    fields = ('user',user_email,'user_fingerprint',
+    fields = ('user',user_email,'fingerprint','user_fingerprint',
         'trust','active','keytype','expires','data')
     readonly_fields = (user_email,'user_fingerprint')
     list_display = ('user', user_email,'trust','expires','active')

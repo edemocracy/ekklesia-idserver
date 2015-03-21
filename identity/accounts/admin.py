@@ -20,10 +20,9 @@
 
 from accounts import models
 from django.contrib import admin
+from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserCreationForm, UserChangeForm
-from django.contrib.auth import get_user_model
-User = get_user_model()
 from django.utils.translation import ugettext_lazy as _
 from mptt.admin import MPTTModelAdmin
 from mptt.models import TreeForeignKey,TreeManyToManyField
@@ -167,6 +166,7 @@ class AccountAdmin(UserAdmin):
     def formfield_for_foreignkey(self, db_field, request=None, **kwargs):
         field = super(AccountAdmin, self).formfield_for_foreignkey(
                                                 db_field, request, **kwargs)
+        User = get_user_model()
         if db_field.rel.to == User and field:
             field.label_from_instance = self.get_user_label
         return field
@@ -174,6 +174,7 @@ class AccountAdmin(UserAdmin):
     def formfield_for_manytomany(self, db_field, request=None, **kwargs):
         field = super(AccountAdmin, self).formfield_for_manytomany(
                                                 db_field, request, **kwargs)
+        User = get_user_model()
         if db_field.rel.to == User and field:
             field.label_from_instance = self.get_user_label
         return field

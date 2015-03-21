@@ -50,7 +50,7 @@ $(SASS_OUT): $(SASS_SRC)
 
 #-----------------------------------------------------------------------------------
 		
-TARGETS=all backup clean css dbsh dump dumps html init msg run runcgi runu runw sh static tar test upd valid
+TARGETS=all backup check clean css dbsh dump dumps html init msg run runcgi runu runw sh static tar test upd
 	
 all:
 	@echo "make ($(subst $( ),|,$(TARGETS)))"
@@ -58,6 +58,9 @@ all:
 backup:
 	$(MANAGE) dumpdata $(OPT) --indent=2 --natural $(EOPT) > $(BACKUP) 
 # | grep -v '"\(date_joined\|last_login\)"'
+
+check:
+	$(MANAGE) check $(OPT)
 
 clean: basicclean
 	#@for app in $(APPS); do rm -rf $$app/migrations; done
@@ -83,7 +86,7 @@ drop: $(PROJ)/settings.py
 	$(MANAGE) sqlflush $(OPT) | grep -v SELECT | sed -e"s/DELETE FROM \(.*\);/DROP TABLE \1;/" -e"s/TRUNCATE \(.*\);/DROP TABLE \1 CASCADE;/" | $(MANAGE) dbshell $(OPT)
 	-echo "DROP TABLE django_migrations;" | $(MANAGE) dbshell $(OPT)
 
-init: valid $(PROJ)/settings.py
+init: check $(PROJ)/settings.py
 	-$(MANAGE) flush $(OPT) --noinput --no-initial-data
 	for app in $(APPS); do $(MANAGE) makemigrations $(OPT) $$app; done
 	$(MANAGE) migrate $(OPT)
@@ -91,16 +94,13 @@ init: valid $(PROJ)/settings.py
 load:
 	$(MANAGE) loaddata $(OPT) -i $(INIT)
 
-valid:
-	$(MANAGE) validate $(OPT)
-
-migratenew: valid
+migratenew: check
 	$(MANAGE) makemigrations $(OPT) $(APP)
-migrateempty: valid
+migrateempty: check
 	$(MANAGE) makemigrations $(OPT) $(APP) --empty
-migratedry: valid
+migratedry: check
 	$(MANAGE) makemigrations $(OPT) --dry-run $(APP)
-migrate: valid
+migrate: check
 	$(MANAGE) migrate $(OPT) $(APP)
 migratelist:
 	$(MANAGE) migrate $(OPT) -l $(APP)

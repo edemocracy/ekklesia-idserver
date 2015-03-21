@@ -19,13 +19,12 @@
 # For more details see the file COPYING.
 
 from django.db.models.signals import post_migrate
-import accounts.models
-
-from django.contrib.auth.models import Permission
-from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes.management import update_all_contenttypes
+#import accounts.models
 
 def create_permissions(sender, **kwargs):
+    from django.contrib.auth.models import Permission
+    from django.contrib.contenttypes.models import ContentType
+    from django.contrib.contenttypes.management import update_all_contenttypes
     update_all_contenttypes() # make sure all content types exist
     account_content = ContentType.objects.get(app_label='accounts', model='account')
     guest_content = ContentType.objects.get(app_label='accounts', model='guest')
@@ -41,4 +40,4 @@ def create_permissions(sender, **kwargs):
                                        content_type=verification_content)
 
 
-post_migrate.connect(create_permissions, sender=accounts.models)
+#post_migrate.connect(create_permissions, sender=accounts.models)

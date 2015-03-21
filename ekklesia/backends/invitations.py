@@ -585,13 +585,21 @@ class InvitationDatabase(AbstractDatabase):
     def create_mail(self,status,inv,sender,email,code=None):
         "create mail using the status dependent template"
         from kryptomime import create_mail
+        from six import PY2
         if status == IStatusType.uploaded:
             link = self.invite_url % inv.code
-            subject, body = self.invite_subject,self.invite_body.decode('string_escape') % link
+            subject, body = self.invite_subject,self.invite_body
         elif status == IStatusType.registered:
-            subject, body = self.registered_subject, self.registered_body.decode('string_escape')
+            subject, body = self.registered_subject, self.registered_body
         else: # status == IStatusType.failed:
-            subject, body = self.failed_subject, self.failed_body.decode('string_escape')
+            subject, body = self.failed_subject, self.failed_body
+        if PY2:
+            body = body.decode('string_escape')
+        else:
+            body = body.encode().decode('unicode_escape')
+        if status == IStatusType.uploaded:
+            link = self.invite_url % inv.code
+            body = body % link
         return create_mail(sender,email,subject,body)
 
     def send_invitations(self,dryrun=False,debug_smtp=None):
