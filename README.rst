@@ -58,11 +58,8 @@ Bug Reports & Feature Requests
 
 There is a `bugtracker <https://github.com/edemocracy/ekklesia/issues>`__ on Github.
 
-NOTE:
-requires https://github.com/tomchristie/django-rest-framework/pull/1495
-
 For direct WSGI with manage.py runserver behind a SSL proxy you need to
 fix Python 2.7 lib/wsgiref/simple_server.py line 99-100 with
 
-        for k,v in self.headers.dict.items():
-            k=k.replace('-','_').upper(); v=v.strip()
+    for k,v in self.headers.dict.items():
+        k=k.replace('-','_').upper(); v=v.strip()

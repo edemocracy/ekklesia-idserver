@@ -3,7 +3,9 @@ branch = True
 source =
     accounts
     idapi
-omit = *migrations*
+omit =
+    *migrations*
+    *management*
 
 [report]
 ignore_errors = True
