@@ -29,8 +29,8 @@ def test_nested(ngroups,accounts):
     from accounts.models import NestedGroup
     root = NestedGroup.objects.get(name="root")
     sub = NestedGroup.objects.get(name="sub")
-    assert root.depth==1
-    assert sub.depth==2
+    assert root.level==1
+    assert sub.level==2
     with raises(NestedGroup.DoesNotExist):
         sub = NestedGroup.objects.get(name="sub3")
 

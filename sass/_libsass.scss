@@ -1,0 +1,10 @@
+// Bootstrap libsass integration
+@function twbs-font-path($path) {
+  @return "../fonts/#{$path}";
+}
+
+@function twbs-image-path($path) {
+  @return "../images/#{$path}";
+}
+
+$bootstrap-sass-asset-helper: true;

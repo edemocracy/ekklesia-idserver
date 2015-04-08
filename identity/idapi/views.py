@@ -49,19 +49,20 @@ class UserAUID(APIView):
         auid = get_auid(token.application,user)
         return Response({'auid':auid.uuid})
 
+def get_user_info(user):
+    from accounts.models import Account
+    ngroups = [ngroup.pk for ngroup in user.nested_groups.all()]
+    allngroups = set([g.pk for g in user.get_nested_groups(parents=True)])
+    status = dict(Account.STATUS_CHOICES)[user.status]
+    verified = user.is_identity_verified()
+    return {'type': status,'verified':verified,'nested_groups':ngroups,'all_nested_groups':allngroups}
+
 class SessionMembership(APIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, format=None):
-        from accounts.models import Account
-        user = request.user
-        ngroups = [ngroup.id for ngroup in user.nested_groups.all()]
-        allngroups = set([g.id for g in user.get_nested_groups(parents=True)])
-        status = dict(Account.STATUS_CHOICES)[user.status]
-        verified = user.is_identity_verified()
-        data = {'type': status,'verified':verified,'nested_groups':ngroups,'all_nested_groups':allngroups}
-        return Response(data)
+        return Response(get_user_info(request.user))
 
     def post(self, request, format=None):
         return self.get(request,format)
@@ -72,14 +73,7 @@ class UserMembership(APIView):
     required_scopes = ['member']
 
     def get(self, request, format=None):
-        from accounts.models import Account
-        user = request.auth.user
-        ngroups = [ngroup.id for ngroup in user.nested_groups.all()]
-        allngroups = set([g.id for g in user.get_nested_groups(parents=True)])
-        status = dict(Account.STATUS_CHOICES)[user.status]
-        verified = user.is_identity_verified()
-        data = {'type': status,'verified':verified,'nested_groups':ngroups,'all_nested_groups':allngroups}
-        return Response(data)
+        return Response(get_user_info(request.auth.user))
 
 class UserListMember(APIView):
     authentication_classes = [OAuth2Authentication]
@@ -90,9 +84,7 @@ class UserListMember(APIView):
         from idapi.models import UserList
         user = request.auth.user
         list = get_object_or_404(UserList,ulid=ulid)
-        #print list, list.__dict__
         data = {'ismember':list.is_member(user),'listID':ulid}
-        #print(request.user,user,data)
         return Response(data)
 
 class UserProfile(APIView):
@@ -128,7 +120,7 @@ class UserMailsViewSet(ViewSet):
         if incoming and not outgoing: msgs = msgs.filter(outgoing=False)
         elif not incoming and outgoing: msgs = msgs.filter(outgoing=True)
         elif not (incoming or outgoing): return Response({})
-        return Response({'items':[msg.id for msg in msgs.all()]})
+        return Response({'items':[msg.pk for msg in msgs.all()]})
 
     def create(self, request, format=None):
         from idapi.mails import send_mail
@@ -137,7 +129,7 @@ class UserMailsViewSet(ViewSet):
     def allowed_identities(self, app):
         import six
         from rest_framework.exceptions import ValidationError, MethodNotAllowed
-        clients = getattr(settings, 'EMAIL_CLIENTS', {})
+        clients = settings.EMAIL_CLIENTS
         try: allowed = clients[app.client_id]
         except KeyError:
             raise PermissionDenied(dict(error='client_not_permitted',

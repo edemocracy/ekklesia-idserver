@@ -20,8 +20,6 @@
 
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
-from django.contrib.auth import get_user_model
-User = get_user_model()
 from django.core.urlresolvers import reverse
 
 from django.contrib.auth.models import Group
@@ -49,8 +47,8 @@ def api_crypto(api):
     from idapi.mails import gnupg_import_init
     from kryptomime.pgp import GPGMIME
     gpg = gnupg_import_init(verbose=False)
-    sender = getattr(settings, 'API_GNUPG_KEY')
-    receiver = getattr(settings, 'API_BACKEND_KEYS', {}).get(api,False)
+    sender = settings.API_GNUPG_KEY
+    receiver = settings.API_BACKEND_KEYS.get(api,False)
     crypto = GPGMIME(gpg,default_key=sender)
     decrypt = sender if sender else False
     encrypt = [receiver] if receiver else False
@@ -61,10 +59,10 @@ def get_members(onlynew=False,crypto=True):
     from accounts.models import Account, Invitation
     if crypto:
         gpg, verify, decrypt, sign, encrypt = api_crypto('members')
-        if crypto==True: crypto = gpg # not debug
+        if crypto is True: crypto = gpg # not debug
     else: verify = decrypt = sign = encrypt = False
     columns = ['uuid']
-    twofactor = getattr(settings, 'TWO_FACTOR_SIGNUP')
+    twofactor = settings.TWO_FACTOR_SIGNUP
     if twofactor: columns.append('activate')
     writer = DataTable(columns,gpg=crypto,
         dataformat='member',fileformat='json',version=[1,0])
@@ -92,7 +90,7 @@ def update_members(members,departments,crypto=True):
     import six
     if crypto:
         gpg, verify, decrypt, sign, encrypt = api_crypto('members')
-        if crypto==True: crypto = gpg # not debug
+        if crypto is True: crypto = gpg # not debug
     else: verify = decrypt = sign = encrypt = False
     deldeps = set(NestedGroup.objects.exclude(syncid=None).values_list('syncid',flat=True))
     reader = DataTable(['id','parent','name','depth'],gpg=crypto,remap={'id':'syncid'},
@@ -115,7 +113,7 @@ def update_members(members,departments,crypto=True):
 
     columns = ['uuid','status','verified','department']
     required = ['uuid','status']
-    twofactor = getattr(settings, 'TWO_FACTOR_SIGNUP')
+    twofactor = settings.TWO_FACTOR_SIGNUP
     if twofactor:
         columns.append('activate')
         required.append('activate')
@@ -140,22 +138,31 @@ def update_members(members,departments,crypto=True):
     while len(deps):
         todo = []
         for dep in deps:
-            parent = dep['parent']
+            dep['level'] = dep.pop('depth')
+            parent = dep.pop('parent')
             if parent:
                 if not parent in done:
                     todo.append(dep)
                     continue
                 parent = NestedGroup.objects.get(syncid=parent)
-            dep['parent'] = parent
             done.add(dep['syncid'])
             try: obj = NestedGroup.objects.get(syncid=dep['syncid'])
             except NestedGroup.DoesNotExist:
-                NestedGroup.objects.create(**dep)
+                if parent:
+                    parent.add_child(**dep)
+                else:
+                    NestedGroup.add_root(**dep)
                 continue
             deldeps.discard(obj.syncid) # keep later
-            if obj._dict == dep: continue
-            for k,v in six.iteritems(dep): setattr(obj,k,v)
-            obj.save()
+            changed = False
+            for k,v in six.iteritems(dep):
+                if not changed and getattr(obj,k)==v: continue
+                setattr(obj,k,v)
+                changed = True
+            if changed: obj.save()
+            cparent = obj.parent
+            if cparent != parent:
+                obj.move(parent,'last-child')
         deps = todo
 
     reg_uuids, fail_uuids = [], []
@@ -191,21 +198,24 @@ def update_members(members,departments,crypto=True):
             dep = member['department']
             del member['department']
             if not dep:
-                obj.nested_groups = NestedGroup.objects.filter(syncid=None,account=obj)
+                obj.nested_groups = obj.nested_groups.filter(syncid=None)
             elif not obj.nested_groups.filter(syncid=dep).exists(): # already in dep?
-                ngroups = NestedGroup.objects.filter(syncid=None,account=obj) | \
+                ngroups = obj.nested_groups.filter(syncid=None) | \
                     NestedGroup.objects.filter(syncid=dep) # union existing ngroups + dep
                 obj.nested_groups = ngroups
-        for k,v in six.iteritems(member): setattr(obj,k,v)
-        if obj.has_changed: obj.save()
+        changed = False
+        for k,v in six.iteritems(member):
+            if not changed and getattr(obj,k)==v: continue
+            setattr(obj,k,v)
+            changed = True
+        if changed: obj.save()
 
-    for syncid in deldeps:
-        NestedGroup.objects.get(syncid=syncid).delete()
-    from accounts.models import notify_backends
+    NestedGroup.objects.filter(syncid__in=deldeps).delete()
+    from accounts.models import notify_registration
     if reg_uuids:
-        notify_backends(status='registered',uuid=reg_uuids)
+        notify_registration(status='registered',uuid=reg_uuids)
     if fail_uuids:
-        notify_backends(status='failed',uuid=fail_uuids)
+        notify_registration(status='failed',uuid=fail_uuids)
     return 'ok'
 
 class MembersView(APIView):
@@ -230,7 +240,7 @@ def get_invitations(onlychanged=False,crypto=True):
     from accounts.models import Invitation
     if crypto:
         gpg, verify, decrypt, sign, encrypt = api_crypto('invitations')
-        if crypto==True: crypto = gpg # not debug
+        if crypto is True: crypto = gpg # not debug
     else: verify = decrypt = sign = encrypt = False
     writer = DataTable(['uuid','status'],gpg=crypto,
         dataformat='invitation',fileformat='json',version=[1,0])
@@ -254,7 +264,7 @@ def update_invitations(invitations,crypto=True):
     import six
     if crypto:
         gpg, verify, decrypt, sign, encrypt = api_crypto('invitations')
-        if crypto==True: crypto = gpg # not debug
+        if crypto is True: crypto = gpg # not debug
     else: verify = decrypt = sign = encrypt = False
     reader = DataTable(['uuid','status','code'],gpg=crypto,
         dataformat='invitation',fileformat='json',version=[1,0])
@@ -280,7 +290,7 @@ def update_invitations(invitations,crypto=True):
             obj.delete()
             continue
         for k,v in six.iteritems(inv): setattr(obj,k,v)
-        if obj.has_changed: obj.save()
+        obj.save()
 
     return 'ok'
 

@@ -75,4 +75,4 @@ class Command(BaseCommand):
         result = send_mail(data, user, None)
         if result['status'] == 'failed':
             raise CommandError('sending failed')
-        self.stdout.write('sent')
+        self.stdout.write(result['status'])

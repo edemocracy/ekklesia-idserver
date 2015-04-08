@@ -4,6 +4,7 @@
 *.pyc
 *.db
 *.mo
+Makefile.local
 identity/*.gpg
 *~
 .DS_Store

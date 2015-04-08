@@ -627,7 +627,7 @@ class InvitationDatabase(AbstractDatabase):
             self.info('sending %s status %s to %s', inv.code, inv.status, email)
             msg = self.create_mail(inv.status,inv,sender,email,inv.code)
             if self.invite_sign:
-                msg, results = self.gpg.sign(msg,inline=True,default_key=True,verify=True)
+                msg, results = self.gpg.sign(msg,inline=False,default_key=True,verify=True)
                 if not msg:
                     self.error('signing message for %s' % email)
                     break
@@ -685,22 +685,26 @@ class InvitationDatabase(AbstractDatabase):
         with special_openwith(args.file, 'r') as f:
             self.reset_invitations(f,code=args.invite,uuids=args.uuid,dryrun=args.dryrun)
 
-    def run(self, args=None): # pragma: no cover
-        from ekklesia.data import special_openwith, dummy_context
-        from ekklesia.backends import api_spec, session_context
+    def load_config(self,cfgfile):
+        from ekklesia.backends import api_spec
         from ekklesia.mail import gpg_spec, smtp_spec
-        from sqlalchemy import create_engine
-        args, parser = self.init_run('invitations','invitation script for members',args)
         spec = invitations_spec+gpg_spec+smtp_spec+api_spec('invitation_api')
-        config = self.get_configuration(spec,args,'invitations.ini')
+        config = self.get_configuration(spec,cfgfile,'invitations.ini')
         self.configure(config=config['invitations'],gpgconfig=config['gnupg'],
             apiconfig=config['invitation_api'],smtpconfig=config['smtp'])
+
+    def run(self, args=None): # pragma: no cover
+        from ekklesia.data import special_openwith, dummy_context
+        from ekklesia.backends import session_context
+        from sqlalchemy import create_engine
+        args, parser = self.init_run('invitations','invitation script for members',args)
+        self.load_config(args.config)
         self.init_gnupg()
         if args.command=='push' and args.daemon:
             daemon = self.prepare_daemon(args.pid)
         else: daemon = dummy_context()
         with daemon, session_context(self):
-            engine = create_engine(self.database,echo=False) #, echo=self.debugging
+            engine = create_engine(self.database,echo=False)
             if args.command == 'init':
                 if args.drop:
                     self.info('dropping tables')

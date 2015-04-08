@@ -69,7 +69,10 @@ distclean: clean
 	@rm -vf $(PROJ)/settings.py
 
 celery:
-	celery -A $(PROJ) worker -l info
+	DJANGO_CONFIGURATION=$(CFG) celery -A $(PROJ) worker -l info --without-mingle --without-gossip
+
+celeryd:
+	celeryd -A $(PROJ) worker -l info -D -f celery.log --without-mingle --without-gossip
 
 css: $(SASS_OUT)
 	@$(MAKE) -C .. $@
@@ -86,8 +89,10 @@ drop: $(PROJ)/settings.py
 	$(MANAGE) sqlflush $(OPT) | grep -v SELECT | sed -e"s/DELETE FROM \(.*\);/DROP TABLE \1;/" -e"s/TRUNCATE \(.*\);/DROP TABLE \1 CASCADE;/" | $(MANAGE) dbshell $(OPT)
 	-echo "DROP TABLE django_migrations;" | $(MANAGE) dbshell $(OPT)
 
-init: check $(PROJ)/settings.py
+flush: check $(PROJ)/settings.py
 	-$(MANAGE) flush $(OPT) --noinput --no-initial-data
+
+init: check $(PROJ)/settings.py
 	for app in $(APPS); do $(MANAGE) makemigrations $(OPT) $$app; done
 	$(MANAGE) migrate $(OPT)
 

@@ -215,11 +215,12 @@ def isotime(data=None):
     return None
 
 def decode_field(data,ftype):
-    import datetime, time
+    import datetime, time, six
     if data is None or data=='': return None
     if type(data)==ftype: return data
     if ftype==bool:
-        if type(data)!=str: return bool(data)
+        if not isinstance(data,six.string_types):
+            return bool(data)
         data = data.lower()
         if data in ('1','y','t','+','yes','true'): return True
         elif data in ('0','n','f','-','no','false'): return False
@@ -232,11 +233,13 @@ def decode_field(data,ftype):
     return data
 
 def encode_field(data,ftype,format='csv'):
-    import datetime, time
+    import datetime, time, six
     if data is None: return None
     if ftype in (datetime.datetime,datetime.time,datetime.date,time.struct_time):
         return isotime(data)
-    elif ftype==str: return str(data)
+    elif ftype==str:
+        if not isinstance(data,six.string_types):
+            return str(data)
     return data
 
 class DataTable(object):
@@ -271,7 +274,7 @@ class DataTable(object):
     """
 
     def __init__(self,columns,coltypes=None,required=True,ignore=True,remap=None,gpg=None,
-        dataformat='data',fileformat='csv',version=(1,0),pretty=True,dialect=csv.excel):
+        dataformat='data',fileformat='csv',version=(1,0),pretty=True,dialect=None):
         self.columns = columns # supported columns
         assert not coltypes or isinstance(coltypes,dict), 'invalid coltypes'
         assert fileformat in ('csv','json','jsondict','json-file','jsondict-file'), 'invalid fileformat'
@@ -281,7 +284,7 @@ class DataTable(object):
         if not remap: remap = {}
         self.remap = remap # optional remapping {field:objfield}
         self.gpg = gpg
-        self.dialect = dialect # csv format
+        self.dialect = dialect or csv.excel # csv format
         self.pretty = pretty
         self.dataformat = dataformat
         self.fileformat = fileformat
@@ -305,13 +308,13 @@ class DataTable(object):
         from six.moves import StringIO
         from six import next, PY3, BytesIO
         self.mode,self.encrypt,self.sign = mode,encrypt,sign
-        if self.required==True: self.required = self.columns
+        if self.required is True: self.required = self.columns
         if encrypt or sign: assert self.gpg, 'gpg not intialized'
         self.origfile = self.file = f
         assert mode in ('r','w'), 'invalid mode'
         if mode=='r':
             if sign:
-                if sign==True:
+                if sign is True:
                     fingerprint = self.gpg.default_key
                     if type(fingerprint) == tuple: fingerprint = fingerprint[0]
                 else:
@@ -343,7 +346,12 @@ class DataTable(object):
                     pos = f.tell()
                     dialect = csv.Sniffer().sniff(f.read(1024))
                     f.seek(pos) # rewind
-                reader = csv.reader(f,dialect=dialect)
+                if not PY3:
+                    import unicodecsv
+                    reader = unicodecsv.reader
+                else:
+                    reader = csv.reader
+                reader = reader(f,dialect=dialect)
                 preamble = next(reader)
                 assert len(preamble), 'invalid file format'
                 assert preamble[0]==self.dataformat, "file format not supported"
@@ -381,7 +389,12 @@ class DataTable(object):
             if self.fileformat=='csv':
                 if encrypt or sign: self.file = StringIO()
                 else: self.file = f
-                self.csv = csv.writer(self.file,lineterminator='\n',dialect=self.dialect)
+                if not PY3:
+                    import unicodecsv
+                    writer = unicodecsv.writer
+                else:
+                    writer = csv.writer
+                self.csv = writer(self.file,lineterminator='\n',dialect=self.dialect)
                 self.csv.writerow((self.dataformat,'%i.%i' % tuple(self.version)))
                 self.csv.writerow(self.columns)
             else: # self.fileformat in ('json','jsondict'):

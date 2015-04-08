@@ -142,10 +142,9 @@ class AbstractDatabase(object):
         self.column_map = config.get('column_map',{}) # {table:{dbkey:appkey}}
         return self
 
-    def get_configuration(self,spec,args,fname=None):
+    def get_configuration(self,spec,cfgfile,fname=None):
         "load configuration from file or defaults"
         import os, configobj, validate
-        cfgfile = args.config
         if not cfgfile:
             cfgfile = fname
             if not os.path.exists(cfgfile):
@@ -303,13 +302,21 @@ class AbstractDatabase(object):
                     column_info['key'] = self.column_map[table.name][column_info['name']]
                 else:
                     column_info['key'] = column_info['name']
+        convention = dict(
+          ix='ix_%(column_0_label)s',
+          uq="uq_%(table_name)s_%(column_0_name)s",
+          ck="ck_%(table_name)s_%(column_0_name)s",
+          fk="fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+          pk="pk_%(table_name)s"
+        )
         if mode=='dropall':
             # Clear out any existing tables
-            metadata = MetaData(engine)
+            metadata = MetaData(engine, naming_convention=convention)
             metadata.reflect()
             _drop_all(metadata)
             return
-        self.Base = declarative_base(bind=engine, cls=DeferredReflection)
+        metadata = MetaData(naming_convention=convention)
+        self.Base = declarative_base(bind=engine, cls=DeferredReflection, metadata=metadata)
         metadata = self.Base.metadata
         self.declare(reflect= mode=='open')
         if mode=='drop':
@@ -323,7 +330,7 @@ class AbstractDatabase(object):
         Session = sessionmaker(bind=engine)
         self.session = Session()
 
-    def setlogger(self,name,level=None,logfile=None):
+    def set_logger(self,name,level=None,logfile=None):
         "initialize the loggers and create one for app name"
         import logging
         if not level: level = logging.NOTSET
@@ -352,7 +359,8 @@ class AbstractDatabase(object):
         self.log = logger
         logger = logging.getLogger('sqlalchemy')
         logger.addHandler(h)
-        logger.setLevel(level)
+        if self.debugging: logger.setLevel(level)
+        else: logger.setLevel(logging.WARNING)
         logger = logging.getLogger('gnupg')
         logger.addHandler(h)
         if self.debugging: logger.setLevel(level)
@@ -373,7 +381,7 @@ class AbstractDatabase(object):
         logger.setLevel(level)
         logger.propagate = True
 
-    def stoplogger(self):
+    def stop_logger(self):
         "remove handlers. use when setlogger is called more than once (testing)"
         import logging
         if not self.handler or not self.log: return
@@ -420,18 +428,23 @@ class AbstractDatabase(object):
             queue = Queue(queue, channel=conn)
             queue.queue_declare()
             queue.bind_to(exchange)
+            try: excpt = (socket.error, ssl.SSLZeroReturnError)
+            except AttributeError: excpt = socket.error
             with conn.Consumer(queue, accept=['json'], callbacks=[callback]) as consumer:
                 while True:
                     try: conn.drain_events(timeout=timeout)
                     except socket.timeout: pass
-                    except (socket.error, ssl.SSLZeroReturnError): break
+                    except excpt: break
 
-    def init_run(self,name,description,args=None):
+    def init_run(self,name,description,args):
         "prepare run: set up arg parsers, parse args, set logger"
-        import gnupg
+        import gnupg, sys
         parser, subparsers = self.init_parsers(name,description)
         args = parser.parse_args(args)
-        self.setlogger(name,args.debug,args.logfile)
+        if not (args and args.command):
+            parser.print_help()
+            sys.exit(1)
+        self.set_logger(name,args.debug,args.logfile)
         return args, parser
 
     def init_gnupg(self):
@@ -541,7 +554,7 @@ class DeclEnumType(SchemaType, TypeDecorator):
     def _set_table(self, table, column):
         self.impl._set_table(table, column)
 
-    def copy(self):
+    def copy(self, **kw):
         return DeclEnumType(self.enum)
 
     def process_bind_param(self, value, dialect):

@@ -84,7 +84,7 @@ def test_mail(mails,bilateral):
 def do_send(attach,request,accounts,apps,tokens,mails,bilateral,client,settings,defect):
     from accounts.models import Account
     from idapi.models import Message, PublicKey
-    from idapi.mails import send_mails, update_keyrings, send_mail
+    from idapi.mails import send_mails, update_keyrings, send_mail, send_queue
     from rest_framework.exceptions import ValidationError, PermissionDenied, MethodNotAllowed
     from kryptomime.pgp import find_gnupg_key
     from kryptomime.mail import mail_payload
@@ -99,9 +99,10 @@ def do_send(attach,request,accounts,apps,tokens,mails,bilateral,client,settings,
     livemail = request.config.getoption('livemail')
     if livemail: server = None
     else: server, imapsend, imaprecv = mails
+    debug=dict(mail=server,gpg=gpg,broker={})
 
     content = {'subject':'hallo1','body':u'foö'}
-    data = {'identity':'portal','content':content,'keep':True}
+    data = {'identity':'portal','content':content,'acknowledge':True}
     if attach:
         msg = {'content':u'bär','content-type':'text/plain'}
         mfile = {'content':'foo\r\nbar','filename':'some.txt'}
@@ -161,7 +162,7 @@ def do_send(attach,request,accounts,apps,tokens,mails,bilateral,client,settings,
     def sendit(subject,sign,encrypt):
         content['subject'] = subject
         data['sign'],data['encrypt'] = sign, encrypt
-        if queue==True:
+        if queue is True:
             response, out = api(client,'user/mails/','post',data,token=token)
             if not excpt:
                 assert response.status_code == 200
@@ -170,9 +171,10 @@ def do_send(attach,request,accounts,apps,tokens,mails,bilateral,client,settings,
                 assert not error or out['error'] == error
         else:
             if not excpt:
-                resp = send_mail(data, user, app, debug=server,debug_gpg=gpg)
+                resp = send_mail(data, user, app, debug=debug)
                 if queue=='crypto' and (sign or encrypt):
                     assert resp['status'] == 'queued'
+                    send_queue(resp['msgid'], debug=debug)
                     response, out = api(client,'user/mails/%s/' % resp['msgid'],token=token)
                     assert response.status_code == 200 and out['status'] == 'sent'
                     assert out['encrypt'] == encrypt and out['sign'] == sign
@@ -180,7 +182,7 @@ def do_send(attach,request,accounts,apps,tokens,mails,bilateral,client,settings,
                     assert resp == dict(status='sent')
             else:
                 with raises(excpt) as excinfo:
-                    resp = send_mail(data, user, app, debug=server,debug_gpg=gpg)
+                    resp = send_mail(data, user, app, debug=debug)
                 assert not error or excinfo.value.detail['error'] == error
 
     sendit('hallo1',True,True)
@@ -188,8 +190,8 @@ def do_send(attach,request,accounts,apps,tokens,mails,bilateral,client,settings,
     sendit('hallo2',False,False)
     sendit('hallo3',True,False)
     sendit('hallo4',False,True)
-    if queue==True:
-        send_mails(joint=True,debug=server,debug_gpg=gpg)
+    if queue is True:
+        send_mails(joint=True,debug=debug)
     if livemail:
         server.close()
         return
@@ -218,7 +220,7 @@ def test_send_direct(request,accounts,apps,tokens,mails,bilateral,client,setting
 @mark.django_db
 def test_send_mixed(request,accounts,apps,tokens,mails,bilateral,client,settings):
     settings.EMAIL_QUEUE = 'crypto'
-    settings.BROKER_URL = 'dummy'
+    #settings.BROKER_URL = 'dummy'
     do_send(False, request,accounts,apps,tokens,mails,bilateral,client,settings,'')
 
 @mark.parametrize("defect", ['','content','ctype','cparams','charset','encoding'])
@@ -292,7 +294,9 @@ def test_receive(request,accounts,tokens,mails,bilateral,client,defect):
         compare_mail(msg,mail)
     assert not len(imapsend) and not len(imaprecv)
     """
-    get_mails(joint=True,debug=None if livemail else server,debug_gpg=bilateral['gpg1'],keep=False)
+    debug = dict(mail=server,gpg=bilateral['gpg1'],broker={})
+    if not livemail: debug['mail'] = server
+    get_mails(joint=True,debug=debug,keep=False)
     if not livemail: assert not len(imapsend) and not len(imaprecv)
 
     response, out = api(client,'user/mails/',token=token)
@@ -327,7 +331,7 @@ def test_registerkey(request,accounts,mails,bilateral,defect):
     import tempfile
     home = tempfile.mkdtemp()
     gpg = gnupg_init(home)
-    update_keyrings(debug_gpg=gpg,debug_import=bilateral['gpg1'])
+    update_keyrings(debug=dict(gpg=gpg,gpgimport=bilateral['gpg1']))
 
     user = accounts['member1']
     id1, id2 = bilateral['id1'], bilateral['id2']
@@ -335,6 +339,7 @@ def test_registerkey(request,accounts,mails,bilateral,defect):
     key2 = find_gnupg_key(bilateral['gpg2'],receiver)
     server, imapsend, imaprecv = mails
     # id1=register, id2=member1
+    debug=dict(mail=server,gpg=gpg)
 
     if defect=='unknown':
         # unknown sender, should be rejected
@@ -351,9 +356,9 @@ def test_registerkey(request,accounts,mails,bilateral,defect):
 
     assert server.send(msg)
     assert len(imapsend)==1
-    get_mails(joint=True,debug=server,debug_gpg=gpg,keep=False)
-    process_register(debug_gpg=gpg)
-    send_mails(joint=True,debug=server,debug_gpg=gpg)
+    get_mails(joint=True,debug=debug,keep=False)
+    process_register(debug=debug)
+    send_mails(joint=True,debug=debug)
 
     if defect=='unknown':
         assert len(imapbad)==1
@@ -388,9 +393,9 @@ def test_registerkey(request,accounts,mails,bilateral,defect):
         reply = id2.encrypt(reply,sign=True)
     assert server.send(reply)
     assert len(imapsend)==1
-    get_mails(joint=True,debug=server,debug_gpg=gpg,keep=False)
-    process_register(debug_gpg=gpg)
-    send_mails(joint=True,debug=server,debug_gpg=gpg)
+    get_mails(joint=True,debug=debug,keep=False)
+    process_register(debug=debug)
+    send_mails(joint=True,debug=debug)
     assert len(imaprecv)==1
     for mail, flags in imaprecv:
         mail, verified, result = id2.decrypt(mail,strict=False)
@@ -411,7 +416,7 @@ def test_registerkey(request,accounts,mails,bilateral,defect):
     msg = id2.encrypt(msg,sign=True)
     assert server.send(reply)
     assert len(imapsend)==1
-    get_mails(joint=True,debug=server,debug_gpg=gpg,keep=False)
+    get_mails(joint=True,debug=debug,keep=False)
 
     # check verified = CONFIRMED/TRUST/...
     # verifiyed key, receive

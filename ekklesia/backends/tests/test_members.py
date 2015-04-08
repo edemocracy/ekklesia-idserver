@@ -56,11 +56,10 @@ memberno,uuid,entitled,verified,email,department,parent,address
 105,,1,1,,Subcounty,County,
 """
 
-
 import os, copy
 from ekklesia.backends.members import MemberDatabase, MStatusType
 from ekklesia.backends.joint import MemberInvDatabase
-from pytest import fixture, raises, mark
+from pytest import yield_fixture, fixture, raises, mark
 from ekklesia.tests.conftest import pytest_addoption, sender, receiver, third, keys, bilateral
 import json
 from sqlalchemy import create_engine
@@ -123,17 +122,20 @@ def gen_departments(db,spec='name'):
     if spec!='implicit': deps['sub3'] = sub3
     return deps
 
-def gen_members(db,deps,spec='name'):
-    m1 = db.Member(uuid='uid1',email=receiver,status='member',verified=False,department=deps['sub'])
-    m2 = db.Member(uuid='uid2',email=third,status='eligible',verified=True,department=deps['subsub'])
-    m3 = db.Member(uuid='uid3',email='verify@localhost',status='eligible',verified=True,department=deps['sub2'])
-    m4 = db.Member(uuid='uid4',email='other@localhost',status='member',verified=True,department=deps['subsub'])
-    if spec=='number': m1.id, m2.id, m3.id, m4.id = 1,2,3,4
+def gen_members(db,deps):
+    m1 = db.Member(uuid='uid1',email=receiver,status=MStatusType.member,
+        verified=False,department=deps['sub'])
+    m2 = db.Member(uuid='uid2',email=third,status=MStatusType.eligible,
+        verified=True,department=deps['subsub'])
+    m3 = db.Member(uuid='uid3',email='verify@localhost',status=MStatusType.eligible,
+        verified=True,department=deps['sub2'])
+    m4 = db.Member(uuid='uid4',email='other@localhost',status=MStatusType.member,
+        verified=True,department=deps['subsub'])
     return (m1,m2,m3,m4)
 
 def check_objs(db,deps=None,members=None,spec='name'):
     if not deps: deps = gen_departments(db,spec)
-    if not members: members = gen_members(db,deps,spec)
+    if not members: members = gen_members(db,deps)
     session = db.session
     qdep = session.query(db.Department)
     qmem = session.query(db.Member)
@@ -157,11 +159,13 @@ def setup_db(dbtype=MyMemberDatabase,engine=None,depspec='name',reflect=True,**c
             export_emails=True, email_receiver=receiver, io_key=receiver,
             member_import=('id','uuid','email','status','verified','department','registered'))
     db = dbtype().configure(config=config,gpgconfig=dict(sender=sender),**configs)
-    db.setlogger('member','warning')
+    db.set_logger('member','warning')
     log = logging.getLogger('sqlalchemy')
     log.setLevel(logging.WARNING)
+    log = logging.getLogger('gnupg')
+    log.setLevel(logging.ERROR)
     if not engine:
-        engine = create_engine(db.database,echo=db.debugging)
+        engine = create_engine(db.database,echo=False)
     db.open_db(engine,mode='dropall')
     db.open_db(engine,mode='create')
     if reflect: db.open_db(engine,mode='open') # and reflect
@@ -171,10 +175,10 @@ def setup_db(dbtype=MyMemberDatabase,engine=None,depspec='name',reflect=True,**c
 def stop_db(db,engine=None):
     global current_db
     if current_db!=db:
-        print ('already finalized', db)
+        print('already finalized %s' % repr(db))
         return
     db.drop_db()
-    db.stoplogger()
+    db.stop_logger()
     db.session.close()
     current_db = None
 
@@ -185,36 +189,38 @@ def dbconnection(request):
     if not db: return None
     return create_engine(db,echo=False)
 
-@fixture(params=[MyMemberDatabase,MyMemberInvDatabase],scope='module')
+@yield_fixture(params=[MyMemberDatabase,MyMemberInvDatabase],scope='module')
 def dbsession(dbconnection, request):
     engine = dbconnection
     db = setup_db(request.param,engine=engine)
-    request.addfinalizer(lambda: stop_db(db,engine))
+    db.session.flush()
     #db.session.commit = db.session.flush
-    return db
+    yield db
+    stop_db(db,engine)
 
-@fixture
+@yield_fixture
 def empty_db(dbsession,request,monkeypatch):
     # Roll back at the end of every test
     monkeypatch.setattr(dbsession.session, 'commit', dbsession.session.flush)
-    request.addfinalizer(dbsession.session.rollback)
-    return dbsession
+    yield dbsession
+    dbsession.session.rollback()
 
 @fixture
 def member_db(empty_db):
     db = empty_db
     deps = gen_departments(db,'number')
-    members = gen_members(db,deps,'name')
+    members = gen_members(db,deps)
     db.session.add_all(list(deps.values())+list(members))
+    db.session.flush()
     return db
 
-@fixture(params=["name","number","implicit"],scope='module')
+@yield_fixture(params=["name","number","implicit"],scope='module')
 def depspec_db(dbconnection,request):
     spec = request.param
     db = setup_db(depspec=spec,engine=dbconnection)
-    request.addfinalizer(lambda: stop_db(db,dbconnection))
     db.session.commit = db.session.flush
-    return db, spec
+    yield db, spec
+    stop_db(db,dbconnection)
 
 def test_import(depspec_db):
     db, spec = depspec_db
@@ -231,12 +237,12 @@ def test_import(depspec_db):
     check_objs(db,spec=spec)
     db.session.rollback()
 
-@fixture(params=[MyMemberDatabase,MyMemberInvDatabase],scope='module')
+@yield_fixture(params=[MyMemberDatabase,MyMemberInvDatabase],scope='module')
 def noreflect_db(dbconnection,request):
     db = setup_db(request.param,reflect=False,engine=dbconnection)
-    request.addfinalizer(lambda: stop_db(db,dbconnection))
     db.session.commit = db.session.flush
-    return db
+    yield db
+    stop_db(db,dbconnection)
 
 def test_import_init(noreflect_db):
     db = noreflect_db
@@ -336,7 +342,7 @@ def test_import_depths(empty_db):
     #for dep in db.session.query(db.Department): print dep
     db.import_members(memberfile=memfile,depfile=depfile)
     deps = gen_departments(db,'implicit')
-    members = gen_members(db,deps,'name')
+    members = gen_members(db,deps)
     check_objs(db,deps,members)
 
 members_export = """member,1.0
@@ -489,18 +495,18 @@ def test_push(member_db):
     assert members == up
     assert not db.process_update(msg,input,output)
 
-@fixture(params=[MyMemberDatabase,MyMemberInvDatabase],scope='module')
+@yield_fixture(params=[MyMemberDatabase,MyMemberInvDatabase],scope='module')
 def crypto_db(dbconnection,request):
     dbtype = request.param
     apiconfig = dict(format='json',encrypt=True,sign=True,receiver=receiver)
     extra = dict(apiconfig=apiconfig) if dbtype==MyMemberDatabase else dict(memberconfig=apiconfig)
     db = setup_db(dbtype,depspec='number',engine=dbconnection,**extra)
-    request.addfinalizer(lambda: stop_db(db,dbconnection))
     db.session.commit = db.session.flush
     deps = gen_departments(db,'number')
-    members = gen_members(db,deps,'name')
+    members = gen_members(db,deps)
     db.session.add_all(list(deps.values())+list(members))
-    return db
+    yield db
+    stop_db(db,dbconnection)
 
 def test_sync_crypto(bilateral,crypto_db):
     from ekklesia.data import json_encrypt, json_decrypt

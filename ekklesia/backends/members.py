@@ -295,7 +295,7 @@ class MemberDatabase(AbstractDatabase):
                 __tablename__ = self.department_table
                 id = Column(Integer, Sequence('id_seq',optional=True), primary_key=True)
                 #depno = Column(Integer, Sequence('depno_seq',optional=True), unique=True,index=True)
-                parent_id = Column(Integer, ForeignKey(depid,name='parent_fk'), nullable=True)
+                parent_id = Column(Integer, ForeignKey(depid), nullable=True)
                 name = Column(String(128))
                 depth = Column(Integer, nullable=True,default=defdepth)
             else: # pragma: no cover
@@ -304,7 +304,7 @@ class MemberDatabase(AbstractDatabase):
                     __mapper_args__ = {'include_properties' : list(self.column_map['departments'].keys()) }
             children = relationship("Department",backref=backref('parent',remote_side="Department.id"))
             members = relationship("Member",backref=backref('department',remote_side="Department.id") )
-            CheckConstraint('depth > parent.depth', name='depthcheck')
+            # need trigger for: CheckConstraint('depth > parent.depth', name='depthcheck')
 
             def __init__(obj, **kwargs):
                 super(self.Base,obj).__init__()
@@ -319,14 +319,15 @@ class MemberDatabase(AbstractDatabase):
         class Member(self.Base):
             if not reflect:
                 __tablename__ = self.member_table
-                uuid = Column(String(36), unique=True, index=True, primary_key=True)
+                uuid = Column(String(36), index=True, primary_key=True)
                 email = Column(String(254), nullable=True, unique=True)
                 status = Column(MStatusType.db_type(), nullable=False, default=MStatusType.member)
-                department_id = Column(Integer, ForeignKey(depid,name='department_fk'), nullable=False)
+                department_id = Column(Integer, ForeignKey(depid), nullable=False)
                 if 'registered' in self.member_import:
                     registered = Column(DateTime, nullable=True)
                 if 'verified' in self.member_import:
-                    verified = Column(Boolean, nullable=True) # null=unknown?->don't overwrite with sync
+                    # null=unknown?->don't overwrite with sync
+                    verified = Column(Boolean, nullable=True)
                 if 'memberno' in self.member_import:
                     memberno = Column(Integer, unique=True, nullable=True)
                 if 'birthday' in self.member_import:
@@ -863,24 +864,28 @@ class MemberDatabase(AbstractDatabase):
         finally:
             if 'location' in self.member_import: self.save_geolut()
 
+    def load_config(self,cfgfile):
+        from ekklesia.backends import api_spec
+        from ekklesia.mail import gpg_spec, smtp_spec
+        spec = members_spec+gpg_spec+smtp_spec+api_spec('member_api')
+        config = self.get_configuration(spec,cfgfile,'members.ini')
+        self.configure(config=config['members'],gpgconfig=config['gnupg'],
+            apiconfig=config['member_api'],smtpconfig=config['smtp'])
+
     def run(self, args=None): # pragma: no cover
         from ekklesia.data import special_openwith, dummy_context
-        from ekklesia.backends import api_spec, session_context
-        from ekklesia.mail import gpg_spec, smtp_spec
+        from ekklesia.backends import session_context
         from sqlalchemy import create_engine
         import contextlib
 
         args, parser = self.init_run('members','synchronization of member databases',args)
-        spec = members_spec+gpg_spec+smtp_spec+api_spec('member_api')
-        config = self.get_configuration(spec,args,'members.ini')
-        self.configure(config=config['members'],gpgconfig=config['gnupg'],
-            apiconfig=config['member_api'],smtpconfig=config['smtp'])
+        self.load_config(args.config)
         self.init_gnupg()
         if args.command=='push' and args.daemon:
             daemon = self.prepare_daemon(args.pid)
         else: daemon = dummy_context()
         with daemon, session_context(self):
-            engine = create_engine(self.database,echo=False) #, echo=self.debugging
+            engine = create_engine(self.database,echo=False)
             if args.command == 'init':
                 if args.drop:
                     self.info('dropping tables')

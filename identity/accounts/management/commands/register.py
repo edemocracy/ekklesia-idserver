@@ -38,7 +38,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        from accounts.models import Account, Invitation, notify_backends
+        from accounts.models import Account, Invitation, notify_registration
         from django.core.exceptions import ObjectDoesNotExist
         
         assert len(args)>=3, 'arguments missing'
@@ -61,5 +61,5 @@ class Command(BaseCommand):
         inv.status = Invitation.REGISTERING
         inv.secret = options['secret'] or None
         inv.save()
-        notify_backends(status='registering',uuid=inv.uuid)
+        notify_registration(status='registering',uuid=inv.uuid)
         print('success')

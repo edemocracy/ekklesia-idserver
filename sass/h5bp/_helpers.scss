@@ -1,0 +1,70 @@
+// Helper classes
+@mixin h5bp-helpers {
+
+  .hidden { @include h5bp-hidden; }
+
+  .visuallyhidden { @include h5bp-visuallyhidden; }
+
+  .invisible { @include h5bp-invisible; }
+
+  .clearfix { @include h5bp-clearfix; }
+
+}
+
+// Hide from both screenreaders and browsers:
+// http://juicystudio.com/article/screen-readers-display-none.php
+@mixin h5bp-hidden {
+  display: none !important;
+  visibility: hidden;
+}
+
+// Hide only visually, but have it available for screenreaders:
+// http://snook.ca/archives/html_and_css/hiding-content-for-accessibility
+@mixin h5bp-visuallyhidden {
+  border: 0;
+  clip: rect(0 0 0 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+
+  // Extends the .visuallyhidden class to allow the element to be focusable
+  // when navigated to via the keyboard: https://www.drupal.org/node/897638
+  &.focusable:active,
+  &.focusable:focus {
+    clip: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    position: static;
+    width: auto;
+  }
+}
+
+// Hide visually and from screenreaders, but maintain layout
+@mixin h5bp-invisible {
+  visibility: hidden;
+}
+
+// Clearfix: contain floats
+//
+// For modern browsers
+// 1. The space content is one way to avoid an Opera bug when the
+//    `contenteditable` attribute is included anywhere else in the document.
+//    Otherwise it causes space to appear at the top and bottom of elements
+//    that receive the `clearfix` class.
+// 2. The use of `table` rather than `block` is only necessary if using
+//    `:before` to contain the top-margins of child elements.
+@mixin h5bp-clearfix {
+  &:before,
+  &:after {
+    content: " "; // 1
+    display: table; // 2
+  }
+
+  &:after {
+    clear: both;
+  }
+}

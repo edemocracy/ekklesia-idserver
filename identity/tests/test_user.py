@@ -571,8 +571,8 @@ def test_session(apps,accounts,tokens,client):
     user = accounts['member1']
     token = tokens['member1']
 
-    ngroups = [ngroup.id for ngroup in user.nested_groups.all()]
-    allngroups = list(set([g.id for g in user.get_nested_groups(parents=True)]))
+    ngroups = [ngroup.pk for ngroup in user.nested_groups.all()]
+    allngroups = list(set([g.pk for g in user.get_nested_groups(parents=True)]))
     status = dict(Account.STATUS_CHOICES)[user.status]
     verified = user.is_identity_verified()
     data = {'type': status,'verified':verified,'nested_groups':ngroups,'all_nested_groups':allngroups}

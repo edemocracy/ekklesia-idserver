@@ -39,11 +39,11 @@ def tmp_json(data):
 @fixture(scope='session')
 def ngroups(db):
     from accounts.models import NestedGroup
-    root = NestedGroup.objects.create(syncid=1,name='root',depth=1,description='root')
-    sub = NestedGroup.objects.create(syncid=2,name='sub',depth=2,parent=root)
-    subsub = NestedGroup.objects.create(syncid=3,name='subsub',parent=sub,depth=4)
-    sub2 = NestedGroup.objects.create(syncid=4,name='sub2',parent=root,depth=2)
-    indep = NestedGroup.objects.create(syncid=None,name='indep',depth=1)
+    root = NestedGroup.add_root(syncid=1,name='root',level=1,description='root')
+    sub = root.add_child(syncid=2,name='sub',level=2)
+    subsub = sub.add_child(syncid=3,name='subsub',level=4)
+    sub2 = root.add_child(syncid=4,name='sub2',level=2)
+    indep = NestedGroup.add_root(syncid=None,name='indep',level=1)
     return dict(root=root,sub=sub,subsub=subsub,sub2=sub2,indep=indep)
 
 def create_user(username,password,cls=None,nested_groups=[],**kwargs):

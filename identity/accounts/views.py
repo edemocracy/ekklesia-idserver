@@ -395,8 +395,8 @@ def password_reset_confirm(request, uidb64=None, token=None,
                                 current_app=current_app)
     context = {
         'title': _('Password reset unsuccessful'),
-        'message': ''''The password reset link was invalid, possibly because it has already been used.
-Please request a new password reset.''',
+        'message': """The password reset link was invalid, possibly because it has already been used.
+Please request a new password reset.""",
     }
     if extra_context is not None: context.update(extra_context)
     return TemplateResponse(request, message_template, context,
@@ -582,7 +582,8 @@ class EMailConfirmationView(TemplateView):
         confirmed_user = self.confirm(**kwargs)
         if confirmed_user:
             context['title'] = "Email confirmed"
-            context['message'] = "Your Email %s has been successfully confirmed." % confirmed_user.email
+            context['message'] = '''Your email %s has been successfully confirmed.
+Your account will be activated shorlty, after which you may login.''' % confirmed_user.email
             #print type(confirmed_user), confirmed_user.is_active
         else:
             context['title'] = "E-Mail confirmation failed"

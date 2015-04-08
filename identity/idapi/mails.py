@@ -90,15 +90,18 @@ def get_full_key(crypto,opts,id):
 
 #-------------------------------------------------------------------------------------------------
 
-def update_keyrings(debug_gpg=None,debug_import=None):
+def update_keyrings(debug=None):
     "update or initialise keyring, if fresh regenerate from scratch"
     import shutil, os, gnupg, time
     from six import iteritems
     from email.utils import parseaddr
 
-    if debug_import: gpgimport = debug_import
-    else: gpgimport = gnupg_import_init()
-    gpg = debug_gpg if debug_gpg else gnupg_init()
+    if debug:
+        gpgimport = debug.get('gpgimport')
+        gpg = debug.get('gpg')
+    else:
+        gpgimport = gnupg_import_init()
+        gpg = gnupg_init()
     pubkeys = gpg.list_keys(secret=False)
     seckeys = gpg.list_keys(secret=True)
     iseckeys = gpgimport.list_keys(secret=True)
@@ -176,6 +179,16 @@ def update_keyrings(debug_gpg=None,debug_import=None):
 
 #-------------------------------------------------------------------------------------------------
 
+def process_crypto(debug=None):
+    raise NotImplementedError
+
+#-------------------------------------------------------------------------------------------------
+
+def process_register(debug=None):
+    raise NotImplementedError
+
+#-------------------------------------------------------------------------------------------------
+
 def encrypt_mail(mail, user, sign, encrypt, crypto, skey):
     from idapi.models import PublicKey
     if sign and not skey:
@@ -196,60 +209,6 @@ def encrypt_mail(mail, user, sign, encrypt, crypto, skey):
         mail,result = crypto.sign(mail,**defkey)
     assert result, "crypto failed"
     return mail
-
-def decrypt_mail(msg, user, mfrom, crypto, gpg, skey):
-    from idapi.models import PublicKey
-    encrypted, signed = crypto.analyze(msg)
-    need_crypto = encrypted or signed
-    data = {'encrypted':encrypted,'signed':signed}
-    if need_crypto and gpg:
-        try:
-            ukey = user.publickeys.get(active=True)
-            trust = ukey.trust
-            if not trust in (PublicKey.UNCONFIRMED,PublicKey.CONFIRMED,PublicKey.TRUSTED):
-                ukey = None
-            else:
-                ukey = crypto.find_key(mfrom)
-        except PublicKey.DoesNotExist: ukey = None
-        if not ukey:
-            log.error('no valid key for %s', mfrom)
-            return None, None
-        # FIXME decode unconfirmed keys
-        if encrypted and skey:
-            msg, verified, result = crypto.decrypt(msg,strict=False)
-        else:
-            verified, result = crypto.verify(msg,strict=False)
-            if result['encrypted']:
-                log.error('cannot decrypt message')
-                return None, None
-            msg, signed = crypto.strip_signature(msg)
-        data['signed'] = result['signed']
-        if verified:
-            if not ukey in result['fingerprints']:
-                data['verified'] = 'unknown'
-            else:
-                data['verified'] = dict(PublicKey.TRUST_CHOICES)[trust]
-        need_crypto = False
-    if need_crypto:
-        assert not gpg, "decryption failed"
-        # FIXME
-        return msg, None
-    return msg, data
-
-def process_crypto(debug_gpg=None):
-    """
-    process all blos, incoming encrypted mails
-    if INDEP crypto also outgoing crypto mail
-    encrypted mail is stored as raw body incl. attachments
-    """
-    return
-
-#-------------------------------------------------------------------------------------------------
-
-def process_register(debug_gpg=None):
-    return
-
-#-------------------------------------------------------------------------------------------------
 
 def encode_mail(sender, receiver, data):
     "data must be validated by check_mail"
@@ -322,7 +281,7 @@ def check_mail(input,user,app):
             raise ValidationError(dict(error='identity_not_permitted',
                 details='the identity is not permitted for this client'))
         recv, send, attach = permissions[identity]
-        if send == False: raise MethodNotAllowed('post')
+        if send is False: raise MethodNotAllowed('post')
     else:
         recv = send = attach = True
     template = input.get('template',None)
@@ -412,10 +371,10 @@ def check_mail(input,user,app):
     else:
         data.update(main)
     # whether to keep sent msg (explicit delete) or auto-delete after send
-    data['keep'] = input.get('keep',False)
+    data['acknowledge'] = input.get('acknowledge',False)
     return data, identity, sign or encrypt
 
-def send_mail_direct(data, user, identity, debug=None,debug_gpg=None):
+def send_mail_direct(data, user, identity, debug=None):
     import email.utils
     opts = settings.EMAIL_IDS[identity]
     sender, sname = opts['email'], opts.get('name','')
@@ -425,12 +384,12 @@ def send_mail_direct(data, user, identity, debug=None,debug_gpg=None):
     crypto = encrypt or sign
     if crypto:
         from kryptomime.pgp import GPGMIME
-        if debug_gpg: gpg = debug_gpg
+        if debug: gpg = debug.get('gpg')
         else: gpg = gnupg_init()
         crypto = GPGMIME(gpg)
         if 'key' in opts: skey = get_full_key(crypto,opts,identity)
         mail = encrypt_mail(mail, user, sign, encrypt, crypto, skey)
-    if debug: smtp = debug
+    if debug: smtp = debug.get('mail')
     else:
         from ekklesia.mail import smtp_init
         config = get_full_config(identity,opts,'smtp')
@@ -441,11 +400,12 @@ def send_mail_direct(data, user, identity, debug=None,debug_gpg=None):
     smtp.close()
     return status
 
-def send_queue(msgid, debug=None, debug_gpg=None):
+def send_queue(msgid, debug=None, notify=None):
     from django.utils import timezone
     from django.db import transaction
     from idapi.models import Message
     from datetime import timedelta
+    from accounts.models import send_broker_msg
     with transaction.atomic():
         try: msg = Message.objects.select_for_update().get(pk=msgid)
         except Message.DoesNotExist:
@@ -464,32 +424,36 @@ def send_queue(msgid, debug=None, debug_gpg=None):
         msg.locked = timezone.now()
         msg.save(update_fields=('locked',))
     msg.locked = None
-    status = send_mail_direct(msg.data, msg.user, msg.identity, debug, debug_gpg)
+    status = send_mail_direct(msg.data, msg.user, msg.identity, debug)
     if status:
         msg.status = Message.SENT
-        if not msg.data.get('keep',False):
+        if not msg.data.get('acknowledge',False):
             msg.delete()
             return True
     else: msg.status = Message.FAILED
+    status = dict(Message.STATUS_CHOICES)[msg.status]
+    bmsg = dict(format='mail',version=(1,0), msgid=[msgid], status=status)
+    if debug: notify = debug.get('broker')
+    send_broker_msg(bmsg, settings.MAIL_EXCHANGE.format(msg.identity), connection=notify)
     msg.time = timezone.now()
     msg.save(update_fields=('locked','status','time'))
     return True
 
-def send_mail(data, user, app, debug=None,debug_gpg=None):
+def send_mail(data, user, app, debug=None):
     from idapi.models import Message
     from idapi.tasks import send_background
     data, identity, crypto = check_mail(data,user,app)
     queue = settings.EMAIL_QUEUE
     if not queue or (not crypto and queue=='crypto'):
         # send directly
-        status = send_mail_direct(data, user, identity, debug, debug_gpg)
+        status = send_mail_direct(data, user, identity, debug)
         return dict(status='sent' if status else 'failed')
     else: # queue
         msg = Message.objects.create(user=user,application=app,identity=identity,
             email=True,outgoing=True,crypto=crypto, data=data)
         if settings.BROKER_URL:
-            if debug or debug_gpg:
-                send_queue(msg.pk, debug, debug_gpg) # direct
+            if debug:
+                send_queue(msg.pk, debug) # direct
             elif settings.USE_CELERY:
                 send_background.delay(msg.pk) # start task
         return dict(status='queued',msgid=msg.pk)
@@ -533,14 +497,14 @@ def send_id_mails(smtp,identity,opts,crypto,isopen):
             try: status = smtp.send(mail)
             except: status = False
             if status:
-                if not msg.data.get('keep',True):
+                if not msg.data.get('acknowledge',True):
                     msg.delete()
                     continue
                 msg.status = Message.SENT
         msg.save(update_fields=('locked','status','time'))
     return isopen
 
-def send_mails(joint=True,connections=None,debug=None,debug_gpg=None):
+def send_mails(joint=True,connections=None,debug=None):
     from kryptomime.pgp import GPGMIME
     from ekklesia.mail import smtp_init
     from six import iteritems
@@ -549,13 +513,13 @@ def send_mails(joint=True,connections=None,debug=None,debug_gpg=None):
     ids = settings.EMAIL_IDS
     if indep_crypto: crypto = None
     else:
-        if debug_gpg: gpg = debug_gpg
+        if debug: gpg = debug.get('gpg')
         else: gpg = gnupg_init()
         crypto = GPGMIME(gpg)
     for k, v in iteritems(configs):
         if joint: config, confids = k, v
         else: config, confids = dict(v), [k]
-        if debug: smtp = debug
+        if debug: smtp = debug.get('mail')
         elif connections is None:
             smtp = smtp_init(config)
         else:
@@ -571,6 +535,45 @@ def send_mails(joint=True,connections=None,debug=None,debug_gpg=None):
             log.debug('smtp closed')
 
 #-------------------------------------------------------------------------------------------------
+
+def decrypt_mail(msg, user, mfrom, crypto, gpg, skey):
+    from idapi.models import PublicKey
+    encrypted, signed = crypto.analyze(msg)
+    need_crypto = encrypted or signed
+    data = {'encrypted':encrypted,'signed':signed}
+    if need_crypto and gpg:
+        try:
+            ukey = user.publickeys.get(active=True)
+            trust = ukey.trust
+            if not trust in (PublicKey.UNCONFIRMED,PublicKey.CONFIRMED,PublicKey.TRUSTED):
+                ukey = None
+            else:
+                ukey = crypto.find_key(mfrom)
+        except PublicKey.DoesNotExist: ukey = None
+        if not ukey:
+            log.error('no valid key for %s', mfrom)
+            return None, None
+        # FIXME decode unconfirmed keys
+        if encrypted and skey:
+            msg, verified, result = crypto.decrypt(msg,strict=False)
+        else:
+            verified, result = crypto.verify(msg,strict=False)
+            if result['encrypted']:
+                log.error('cannot decrypt message')
+                return None, None
+            msg, signed = crypto.strip_signature(msg)
+        data['signed'] = result['signed']
+        if verified:
+            if not ukey in result['fingerprints']:
+                data['verified'] = 'unknown'
+            else:
+                data['verified'] = dict(PublicKey.TRUST_CHOICES)[trust]
+        need_crypto = False
+    if need_crypto:
+        assert not gpg, "decryption failed"
+        # FIXME
+        return msg, None
+    return msg, data
 
 def decode_mail(msg, idemail, crypto, gpg, skey):
     import email.utils
@@ -645,8 +648,8 @@ def save_mail(mail, identity, idemail, crypto, gpg, skey, notify=None):
             # otherwise decrypt in mailio task
         else: # ready for clients
             from accounts.models import send_broker_msg
-            msg = dict(format='mail',version=(1,0),msgid=msg.pk)
-            send_broker_msg(msg, settings.MAILIN_EXCHANGE, settings.MAILIN_QUEUE,connection=notify)
+            msg = dict(format='mail',version=(1,0),msgid=[msg.pk],status='received')
+            send_broker_msg(msg, MAIL_EXCHANGE.format(identity), connection=notify)
     return True
 
 def store_mail(mail,identity=None,decrypt=False,notify=None):
@@ -714,19 +717,19 @@ def get_id_mails(server,identity,opts,gpg,isopen,notify=None,debug=None,keep=Fal
         save_mail(mail, identity, idemail, crypto, gpg, skey, notify)
     return isopen
 
-def get_mails(joint=True,connections=None,notify=None,debug=None,debug_gpg=None,keep=False):
+def get_mails(joint=True,connections=None,notify=None,debug=None,keep=False):
     from ekklesia.mail import IMAPSource, imap_init
     from six import iteritems
     configs = get_all_configs('imap',True)
     ids = settings.EMAIL_IDS
     indep_crypto = getattr(settings, 'EMAIL_INDEP_CRYPT', False)
     if indep_crypto: gpg = None
-    elif debug_gpg: gpg = debug_gpg
+    elif debug: gpg = debug.get('gpg')
     else: gpg = gnupg_init()
     for k, v in iteritems(configs):
         if joint: config, confids = k, v
         else: config, confids = dict(v), [k]
-        if debug: server = debug
+        if debug: server = debug.get('mail')
         elif connections is None:
             server = imap_init(config,keep=keep)
         else:

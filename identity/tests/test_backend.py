@@ -84,15 +84,15 @@ def test_member(request,accounts,invitations,bilateral,client,variant,settings):
 
     assert not NestedGroup.objects.filter(syncid=3).exists()
     root = NestedGroup.objects.get(syncid=1)
-    assert root.name=='r00t' and root.parent==None and root.depth==1
+    assert root.name=='r00t' and root.is_root() and root.level==1
     sub = NestedGroup.objects.get(syncid=2)
-    assert sub.name=='s0b' and sub.parent==root and sub.depth==2
+    assert sub.name=='s0b' and sub.parent==root and sub.level==2
     ssub = NestedGroup.objects.get(syncid=5)
-    assert ssub.name=='s0bsub' and ssub.parent==sub and ssub.depth==3
+    assert ssub.name=='s0bsub' and ssub.parent==sub and ssub.level==3
     ssub2 = NestedGroup.objects.get(syncid=4)
-    assert ssub2.name=='s0bsub2' and ssub2.parent==sub and ssub2.depth==3
+    assert ssub2.name=='s0bsub2' and ssub2.parent==sub and ssub2.level==3
     indep = NestedGroup.objects.get(name='indep')
-    assert indep.syncid is None and indep.depth==1
+    assert indep.syncid is None and indep.level==1
 
     m = Account.objects.get(uuid='uid3')
     assert m.status==Account.DELETED

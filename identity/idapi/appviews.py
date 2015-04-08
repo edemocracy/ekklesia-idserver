@@ -65,7 +65,7 @@ class ShareViewSet(ViewSet):
 
     def initial(self, request, share, *args, **kwargs):
         super(ShareViewSet,self).initial(request, *args, **kwargs)
-        shares = getattr(settings, 'SHARE_CLIENTS', None)
+        shares = settings.SHARE_CLIENTS
         try: clients = shares[share]
         except KeyError: raise exceptions.PermissionDenied('Share does not exist.')
         except: raise exceptions.PermissionDenied()
@@ -73,7 +73,6 @@ class ShareViewSet(ViewSet):
         except: raise exceptions.PermissionDenied()
         if not request.method.lower() in verbs:
             self.http_method_not_allowed(request, *args, **kwargs)
-        #print request.auth.client_id,'trying', share
         share = get_object_or_404(Share,name=share)
         request.share = share
         if not 'pk' in kwargs: return
@@ -88,10 +87,8 @@ class ShareViewSet(ViewSet):
 
     @method_decorator(condition(etag_func=etag_list, last_modified_func=modified_list))
     def list(self, request, share, format=None):
-        #print 'list',share, request.__dict__, format
         if request.method == 'HEAD': return Response()
         def getisotime(param):
-            import time, datetime
             x = request.GET.get(param)
             if x: x = datetime.datetime(*time.strptime(x,"%Y%m%dT%H%M%SZ")[0:6])
             return x
@@ -131,7 +128,6 @@ class ShareViewSet(ViewSet):
     def create(self, request, share, format=None):
         from django.utils.http import http_date, quote_etag
         from calendar import timegm
-        #print 'create',share, request.__dict__, format
         obj = ShareObject(share=request.share,data=request.data,last_client=request.auth)
         obj.save()
         location = request.build_absolute_uri(reverse('v1:share-detail',kwargs={'share':share,'pk':obj.no}))
@@ -141,14 +137,12 @@ class ShareViewSet(ViewSet):
 
     @method_decorator(condition(etag_func=etag_detail, last_modified_func=modified_detail))
     def retrieve(self, request, share, pk, format=None):
-        #print 'retrieve',share, pk, request.__dict__, format
         if request.share_obj is None: raise Http404
         if request.method == 'HEAD': return Response()
         return Response(request.share_obj.data)
 
     @method_decorator(condition(etag_func=etag_detail, last_modified_func=modified_detail))
     def update(self, request, share, pk, format=None):
-        #print 'update',share, pk, request.__dict__, format
         if request.share_obj is None:
             return HttpResponse(status=403)
             """ RECREATING DELETED OBJECTS NOT ALLOWED
@@ -167,7 +161,6 @@ class ShareViewSet(ViewSet):
 
     @method_decorator(condition(etag_func=etag_detail, last_modified_func=modified_detail))
     def partial_update(self, request, share, pk, format=None):
-        #print 'partial',share, pk, request.__dict__, format
         from six import iteritems
         if request.share_obj is None: raise Http404
         obj = request.share_obj
@@ -177,7 +170,6 @@ class ShareViewSet(ViewSet):
 
     @method_decorator(condition(etag_func=etag_detail, last_modified_func=modified_detail))
     def destroy(self, request, share, pk, format=None):
-        #print 'destroy',share, pk, request.__dict__, format
         obj = request.share_obj
         if obj is None: raise Http404
         obj.delete(client=request.auth)
@@ -190,7 +182,7 @@ class ShareChangesView(APIView):
 
     def initial(self, request, share, *args, **kwargs):
         super(ShareChangesView,self).initial(request, *args, **kwargs)
-        shares = getattr(settings, 'SHARE_CLIENTS', None)
+        shares = settings.SHARE_CLIENTS
         try: clients = shares[share]
         except KeyError: raise exceptions.PermissionDenied('Share does not exist.')
         except: raise exceptions.PermissionDenied()
@@ -203,7 +195,6 @@ class ShareChangesView(APIView):
         request.share = share
 
     def get(self, request, share, format=None):
-        #print request.__dict__, format
         def getint(param,default=None):
             x = request.GET.get(param)
             if x:
@@ -218,12 +209,10 @@ class ShareChangesView(APIView):
         if start: changes = changes.filter(version__gt=start)
         changes = changes.filter(version__lte=stop)
         created,modified,deleted = set(),set(),set()
-        #print len(changes), 'changes for', share
         changes = changes.order_by('version')
         first = 0
         for change in changes.all():
             if not first: first = change.version
-            #print change,change.action,change.time
             if change.action==ShareChange.CREATE:
                 created.add(change.no)
             elif change.action==ShareChange.MODIFY:
@@ -239,7 +228,6 @@ class ShareChangesView(APIView):
                     modified.remove(change.no)
                 else:
                     deleted.add(change.no)
-        #print created,modified,deleted
         def geturis(objs):
             return [request.build_absolute_uri(reverse('v1:share-detail',kwargs={'share':share,'pk':no})) for no in objs]
         data = {'share':share,'first':first,'last':stop,'current':request.share.version,
@@ -261,7 +249,7 @@ class ListsView(APIView):
 
     def initial(self, request, *args, **kwargs):
         super(ListsView,self).initial(request, *args, **kwargs)
-        clients = getattr(settings, 'LISTS_CLIENTS', None)
+        clients = settings.LISTS_CLIENTS
         try: verbs = clients[request.auth.client_id]
         except: raise exceptions.PermissionDenied()
         if not request.method.lower() in verbs:
@@ -271,7 +259,6 @@ class ListsView(APIView):
         from django.utils.http import http_date, quote_etag
         from calendar import timegm
         from idapi.models import ApplicationUUID
-        #print 'create',share, request.__dict__, format
         data = request.data
         if not 'users' in data: raise Http404
         users = []
@@ -292,6 +279,8 @@ class ListsView(APIView):
                 assert obj.no == i+1
             else:
                 ulist.skip_object()
+        from idapi.models import notify_list
+        notify_list(ulist.ulid,'create')
         return Response({'ulid':ulist.ulid},status=status.HTTP_201_CREATED)
 
 class ListsViewSet(ViewSet):
@@ -301,7 +290,7 @@ class ListsViewSet(ViewSet):
 
     def initial(self, request, ulid, *args, **kwargs):
         super(ListsViewSet,self).initial(request, *args, **kwargs)
-        clients = getattr(settings, 'LISTS_CLIENTS', None)
+        clients = settings.LISTS_CLIENTS
         #try: clients = shares[share]
         #except KeyError: raise exceptions.PermissionDenied('Share does not exist.')
         #except: raise exceptions.PermissionDenied()
@@ -321,7 +310,6 @@ class ListsViewSet(ViewSet):
 
     #@method_decorator(condition(etag_func=etag_list, last_modified_func=modified_list))
     def list(self, request, ulid, format=None):
-        #print 'list',share, request.__dict__, format
         if request.method == 'HEAD': return Response()
         ulist = request.ulist
         query = ulist.members.order_by('no').all()
@@ -338,11 +326,11 @@ class ListsViewSet(ViewSet):
                 'nusers':len(users),'users':users})
 
     def destroy(self, request, ulid, pos, format=None):
-        #print 'destroy',ulid, pos, request.__dict__, format
         member = request.ulistmember
         if member is None: raise Http404
         member.delete(client=request.auth)
         auid = get_auid(request,member).uuid
+        notify_list(request.ulist.ulid,'modify')
         return Response({'auid':auid,'position':pos},status=status.HTTP_204_NO_CONTENT)
 
 class ListsMemberView(APIView):

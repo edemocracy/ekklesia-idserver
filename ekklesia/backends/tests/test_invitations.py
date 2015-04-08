@@ -22,7 +22,7 @@
 import os, copy
 from ekklesia.backends.invitations import InvitationDatabase, IStatusType, ISentStatusType
 from ekklesia.backends.joint import MemberInvDatabase
-from pytest import fixture, raises, mark
+from pytest import fixture, yield_fixture, raises, mark
 from ekklesia.tests.conftest import sender, receiver, third, keys, gpgsender, gpgreceiver, bilateral, passphrase
 import logging, json
 from sqlalchemy import create_engine
@@ -112,11 +112,13 @@ def setup_db(dbtype=InvitationDatabase,engine=None,import_extra=[],reflect=True,
         invite_import=['uuid','email','code','status','sent','lastchange']
     config = dict(invite_import=invite_import+import_extra,database=engine,io_key=receiver)
     db = dbtype().configure(config=config,gpgconfig=dict(sender=sender),**configs)
-    db.setlogger('invitation','warning')
+    db.set_logger('invitation','warning')
     log = logging.getLogger('sqlalchemy')
     log.setLevel(logging.WARNING)
+    log = logging.getLogger('gnupg')
+    log.setLevel(logging.ERROR)
     if not engine:
-        engine = create_engine(db.database,echo=db.debugging)
+        engine = create_engine(db.database,echo=False)
     db.open_db(engine,mode='dropall')
     db.open_db(engine,mode='create')
     if reflect: db.open_db(engine,mode='open') # and reflect
@@ -126,10 +128,10 @@ def setup_db(dbtype=InvitationDatabase,engine=None,import_extra=[],reflect=True,
 def stop_db(db,engine=None):
     global current_db
     if current_db!=db:
-        print ('already finalized', db)
+        print('already finalized %s' % repr(db))
         return
     db.drop_db()
-    db.stoplogger()
+    db.stop_logger()
     db.session.close()
     current_db = None
 
@@ -140,21 +142,21 @@ def dbconnection(request):
     if not db: return None
     return create_engine(db,echo=False)
 
-@fixture(params=[InvitationDatabase,MemberInvDatabase],scope='module')
+@yield_fixture(params=[InvitationDatabase,MemberInvDatabase],scope='module')
 def dbsession(dbconnection, request):
     engine = dbconnection
     db = setup_db(request.param,engine=engine)
-    request.addfinalizer(lambda: stop_db(db,engine))
-    return db
+    yield db
+    stop_db(db,engine)
 
-@fixture
+@yield_fixture
 def empty_db(dbsession,request,monkeypatch):
     # Roll back at the end of every test
     db = dbsession
     if isinstance(db,MemberInvDatabase): gen_members(db)
-    request.addfinalizer(db.session.rollback)
     monkeypatch.setattr(db.session, 'commit', db.session.flush)
-    return db
+    yield db
+    db.session.rollback()
 
 @fixture
 def inv_db(empty_db):
@@ -190,12 +192,12 @@ def remove_lastchange(data,filled=True):
         res += ','.join(f) + '\n'
     return res
 
-@fixture(params=[InvitationDatabase,MemberInvDatabase],scope='module')
+@yield_fixture(params=[InvitationDatabase,MemberInvDatabase],scope='module')
 def noreflect_db(dbconnection,request):
     db = setup_db(request.param,reflect=False,engine=dbconnection)
-    request.addfinalizer(lambda: stop_db(db,dbconnection))
     db.session.commit = db.session.flush
-    return db
+    yield db
+    stop_db(db,dbconnection)
 
 def test_import_init(noreflect_db):
     db = noreflect_db
@@ -275,13 +277,15 @@ def test_import_mail(empty_db):
     inv6, inv7 = invs[2:4]
     inv7.sent = ISentStatusType.sent # set both inv6 and 7 to uploaded,sent
     db.session.add_all(invs)
+    query = db.session.query(db.Invitation)
     if db.member_class:
         db.import_members(StringIO(members_mail)) # del uid06, change uid7
-        query = db.session.query(db.Invitation)
         inv6 = query.filter_by(member_id='uid06').first()
+        inv7 = query.filter_by(member_id='uid07').first()
         assert inv7.member.email=='new@localhost' and inv6.member.status=='deleted'
     else:
         db.import_invitations(StringIO(inv_mail))
+        inv7 = query.filter_by(uuid='uid07').first()
         assert inv7.email=='new@localhost'
     assert inv6.status==IStatusType.deleted
     assert inv7.status==IStatusType.new and inv7.sent==ISentStatusType.unsent
@@ -304,6 +308,8 @@ inv_mailupd = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid','ema
 def test_reset_email(empty_db):
     "change of email address should reset sent status for uploaded"
     db = empty_db
+    #assert not db.session.query(db.Invitation).count()
+    #if db.member_class: assert db.session.query(db.Member).count()==12
     input = remove_email(inv_mailreset) if db.member_class else copy.deepcopy(inv_mailreset)
     db.import_invitations(input,allfields=True,format='json')
     if db.member_class:
@@ -515,7 +521,7 @@ def test_push(empty_db,newstatus):
     # not again
     assert not db.process_update(msg,input,output)
 
-@fixture(params=[InvitationDatabase,MemberInvDatabase],scope='module')
+@yield_fixture(params=[InvitationDatabase,MemberInvDatabase],scope='module')
 def crypto_db(dbconnection,request):
     dbtype = request.param
     apiconfig = dict(format='json',encrypt=True,sign=True,receiver=receiver)
@@ -523,9 +529,9 @@ def crypto_db(dbconnection,request):
     db = setup_db(dbtype,engine=dbconnection,**extra)
     if isinstance(db,MemberInvDatabase):
         gen_members(db)
-    request.addfinalizer(lambda: stop_db(db,dbconnection))
     db.session.commit = db.session.flush
-    return db
+    yield db
+    stop_db(db,dbconnection)
 
 def test_sync_crypto(bilateral,crypto_db):
     from ekklesia.data import json_encrypt, json_decrypt

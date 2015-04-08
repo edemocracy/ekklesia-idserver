@@ -1,9 +1,10 @@
 from __future__ import with_statement
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 from logging.config import fileConfig
 import logging
 import re
+import os
 
 USE_TWOPHASE = False
 
@@ -32,17 +33,40 @@ db_names = config.get_main_option('databases')
 #       'engine1':mymodel.metadata1,
 #       'engine2':mymodel.metadata2
 #}
-from sqlalchemy.ext.declarative import declarative_base, DeferredReflection
-from backends.members import MemberDatabase
-from backends.invitations import InvitationDatabase
-db1 = MemberDatabase()
-db1.Base = declarative_base(cls=DeferredReflection)
-db1.declare(False)
-db2 = InvitationDatabase()
-db2.Base = declarative_base(cls=DeferredReflection)
-db2.declare(False)
+databases = {}
 
-target_metadata = {'engine1':db1.Base.metadata,'engine2':db2.Base.metadata}
+from sqlalchemy.ext.declarative import declarative_base, DeferredReflection
+args = context.get_x_argument(as_dictionary=True)
+
+if 'members' in db_names:
+    from ekklesia.backends.members import MemberDatabase
+    db = MemberDatabase()
+    db.load_config(args.get('memberconfig'))
+    if not db.database:
+        db.database = config.get_section_option('members',"sqlalchemy.url")
+    db.Base = declarative_base() #cls=DeferredReflection
+    db.declare(False)
+    databases['members'] = db
+
+if 'invitations' in db_names:
+    from ekklesia.backends.invitations import InvitationDatabase
+    db = InvitationDatabase()
+    db.load_config(args.get('invconfig'))
+    if not db.database:
+        db.database = config.get_section_option('invitations',"sqlalchemy.url")
+    db.Base = declarative_base()
+    db.declare(False)
+    databases['invitations'] = db
+
+if 'joint' in db_names:
+    from ekklesia.backends.joint import MemberInvDatabase
+    db = MemberInvDatabase()
+    db.load_config(args.get('jointconfig'))
+    if not db.database:
+        db.database = config.get_section_option('joint',"sqlalchemy.url")
+    db.Base = declarative_base()
+    db.declare(False)
+    databases['joint'] = db
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -64,21 +88,28 @@ def run_migrations_offline():
     # for the --sql use case, run migrations for each URL into
     # individual files.
 
-    engines = {}
-    for name in re.split(r',\s*', db_names):
-        engines[name] = rec = {}
-        rec['url'] = context.config.get_section_option(name,
-                                            "sqlalchemy.url")
+    version_file = os.path.join(os.path.dirname(config.config_file_name), "version.txt")
+    if os.path.exists(version_file):
+        current_version = open(version_file).read()
+    else:
+        current_version = None
 
-    for name, rec in engines.items():
+    for name, db in databases.items():
         logger.info("Migrating database %s" % name)
         file_ = "%s.sql" % name
         logger.info("Writing output to %s" % file_)
         with open(file_, 'w') as buffer:
-            context.configure(url=rec['url'], output_buffer=buffer,
-                                target_metadata=target_metadata.get(name))
+            context.configure(url=db.database, output_buffer=buffer,
+                                target_metadata=db.Base.metadata,
+                                starting_rev=current_version,
+                                render_as_batch=True,
+            )
             with context.begin_transaction():
                 context.run_migrations(engine_name=name)
+
+    end_version = context.get_revision_argument()
+    if end_version and end_version != current_version:
+        open(version_file, 'w').write(end_version)
 
 def run_migrations_online():
     """Run migrations in 'online' mode.
@@ -92,12 +123,9 @@ def run_migrations_online():
     # engines, then run all migrations, then commit all transactions.
 
     engines = {}
-    for name in re.split(r',\s*', db_names):
+    for name, db in databases.items():
         engines[name] = rec = {}
-        rec['engine'] = engine_from_config(
-                                    context.config.get_section(name),
-                                    prefix='sqlalchemy.',
-                                    poolclass=pool.NullPool)
+        rec['engine'] = create_engine(db.database, poolclass=pool.NullPool)
 
     for name, rec in engines.items():
         engine = rec['engine']
@@ -109,13 +137,15 @@ def run_migrations_online():
             rec['transaction'] = conn.begin()
 
     try:
-        for name, rec in engines.items():
+        for name, db in databases.items():
             logger.info("Migrating database %s" % name)
+            rec = engines[name]
             context.configure(
                         connection=rec['connection'],
                         upgrade_token="%s_upgrades" % name,
                         downgrade_token="%s_downgrades" % name,
-                        target_metadata=target_metadata.get(name)
+                        target_metadata=db.Base.metadata,
+                        render_as_batch=True,
                     )
             context.run_migrations(engine_name=name)
 

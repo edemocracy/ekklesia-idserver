@@ -18,6 +18,28 @@ _default_loaders = (
 	'django.template.loaders.eggs.Loader',
 )
 
+_enc_middleware = (
+	#'django.middleware.cache.UpdateCacheMiddleware',
+	'ekklesia.middleware.SecureRequiredMiddleware',
+	'django.middleware.gzip.GZipMiddleware',
+)
+
+_def_middleware = (
+	'django.middleware.common.CommonMiddleware',
+	#'django.middleware.http.ConditionalGetMiddleware',
+	'django.contrib.sessions.middleware.SessionMiddleware',
+	'django.middleware.csrf.CsrfViewMiddleware',
+	#'django.middleware.locale.LocaleMiddleware',
+	'django.contrib.auth.middleware.AuthenticationMiddleware',
+	'django.contrib.messages.middleware.MessageMiddleware',
+	'django_otp.middleware.OTPMiddleware',
+	# Uncomment the next line for simple clickjacking protection:
+	'django.middleware.clickjacking.XFrameOptionsMiddleware',
+	#'django.middleware.cache.FetchFromCacheMiddleware',
+	'corsheaders.middleware.CorsMiddleware',
+)
+
+
 def defaults(production=False,admin=False,site=0):
 	class Defaults(Configuration):
 		HAVE_ADMIN = admin
@@ -125,7 +147,7 @@ def defaults(production=False,admin=False,site=0):
 			#'django.contrib.formtools', # for previews
 			#'django.contrib.sitemaps', # for XML sitemap
 			'django.contrib.humanize',
-			'mptt',
+			'treebeard',
 			'django_extensions',
 			#'endless_pagination',
 			'oauth2_provider',
@@ -149,25 +171,11 @@ def defaults(production=False,admin=False,site=0):
 			INSTALLED_APPS += ('django_admin_bootstrapped.bootstrap3','django_admin_bootstrapped',
 				'django.contrib.admin','django.contrib.admindocs')
 		if DEBUG:
-			INSTALLED_APPS += ('rest_framework_swagger',)
-
-		MIDDLEWARE_CLASSES = (
-			#'django.middleware.cache.UpdateCacheMiddleware',
-			'ekklesia.middleware.SecureRequiredMiddleware',
-			'django.middleware.gzip.GZipMiddleware',
-			'django.middleware.common.CommonMiddleware',
-			#'django.middleware.http.ConditionalGetMiddleware',
-			'django.contrib.sessions.middleware.SessionMiddleware',
-			'django.middleware.csrf.CsrfViewMiddleware',
-			#'django.middleware.locale.LocaleMiddleware',
-			'django.contrib.auth.middleware.AuthenticationMiddleware',
-			'django.contrib.messages.middleware.MessageMiddleware',
-			'django_otp.middleware.OTPMiddleware',
-			# Uncomment the next line for simple clickjacking protection:
-			'django.middleware.clickjacking.XFrameOptionsMiddleware',
-			#'django.middleware.cache.FetchFromCacheMiddleware',
-			'corsheaders.middleware.CorsMiddleware',
-		)
+			INSTALLED_APPS += ('rest_framework_swagger','debug_toolbar')
+			MIDDLEWARE_CLASSES = (_enc_middleware + ('debug_toolbar.middleware.DebugToolbarMiddleware',)
+				+ _def_middleware)
+		else:
+			MIDDLEWARE_CLASSES = (_enc_middleware + _def_middleware)
 
 		AUTH_USER_MODEL = 'accounts.Account'
 
@@ -369,12 +377,17 @@ def defaults(production=False,admin=False,site=0):
 				},
 				'oauth2_provider': {
 					'handlers': ['file'],
-					'level': 'DEBUG',
+					'level': 'INFO',
 					'propagate': True,
 				},
 				'oauthlib': {
 					'handlers': ['file'],
-					'level': 'DEBUG',
+					'level': 'INFO',
+					'propagate': True,
+				},
+				'celery': {
+					'handlers': ['file'],
+					'level': 'INFO',
 					'propagate': True,
 				},
 				'debug': {
@@ -422,6 +435,10 @@ def defaults(production=False,admin=False,site=0):
 
 		SHARE_PUSH = {
 			# share name, [push urls]
+		}
+
+		LISTS_CLIENTS = {
+			# client_id: allowed VERBS
 		}
 
 		CACERT_BUNDLE='' # CA CERT bundle
@@ -503,10 +520,14 @@ def defaults(production=False,admin=False,site=0):
 		CELERY_TIMEZONE = 'Europe/Berlin'
 		CELERY_ENABLE_UTC = True
 
-		BACKEND_EXCHANGE='id-backend'
-		BACKEND_QUEUE='id-backend'
-		MAILIN_EXCHANGE='id-mailin'
-		MAILIN_QUEUE='id-mailin'
+		# member registrations
+		REGISTER_EXCHANGE='register'
+		# incoming mail notifications and outgoing acknowledgements
+		MAIL_EXCHANGE='mail-%s'
+		# share changes
+		SHARE_EXCHANGE='share-%s'
+		# list changes
+		LIST_EXCHANGE='lists'
 	return Defaults
 
 class Testing(defaults(production=True,admin=False)):

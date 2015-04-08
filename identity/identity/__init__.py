@@ -1,5 +1,4 @@
 from __future__ import absolute_import
-
 from django.conf import settings
 import os, configurations
 
@@ -8,7 +7,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'identity.settings')
 os.environ.setdefault('DJANGO_CONFIGURATION', 'Development')
 
 try: configurations.setup()
-except:
+except AttributeError:
     from configurations.importer import install
     install()
 

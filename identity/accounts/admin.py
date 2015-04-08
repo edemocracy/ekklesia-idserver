@@ -24,21 +24,15 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserCreationForm, UserChangeForm
 from django.utils.translation import ugettext_lazy as _
-from mptt.admin import MPTTModelAdmin
-from mptt.models import TreeForeignKey,TreeManyToManyField
+from treebeard.admin import TreeAdmin
 from ekklesia.admin import UserAdminSite
 
 #admin.site.disable_action('delete_selected')
 
 @admin.register(models.NestedGroup)
-class NestedGroupAdmin(MPTTModelAdmin):
-    fields = ['syncid','name', 'parent','depth','description']
-    mptt_level_indent = 20
-    mptt_indent_field = 'name'
-    list_display = ('name','depth')
-    formfield_overrides = {
-        TreeForeignKey: {'level_indicator': u'+-'},
-    }
+class NestedGroupAdmin(TreeAdmin):
+    fields = ['syncid','name', 'level','description']
+    list_display = ('name','level')
     actions = ['delete_nested_group']
 
     def get_actions(self, request):
@@ -121,11 +115,6 @@ class AccountAdmin(UserAdmin):
     filter_horizontal = ('groups', 'user_permissions',)#'nested_group',
     #readonly_fields = ('my_summary',)
     search_fields = ('=username','uuid')
-
-    formfield_overrides = {
-        TreeForeignKey: {'level_indicator': u'+-'},
-        TreeManyToManyField: {'level_indicator': u'+-'},
-    }
 
     def verify_user(self, request, queryset):
         self.message_user(request,'not yet implemented') 
@@ -303,7 +292,7 @@ class RestrictedVerificationAdmin(VerificationAdmin):
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == 'verifier':
-            kwargs['initial'] = request.user.id
+            kwargs['initial'] = request.user.pk
             return db_field.formfield(**kwargs)
         return super(RestrictedVerificationAdmin, self).formfield_for_foreignkey(db_field, request, **kwargs)
 

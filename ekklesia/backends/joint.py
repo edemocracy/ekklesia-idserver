@@ -101,22 +101,26 @@ class MemberInvDatabase(MemberDatabase,InvitationDatabase):
         update = MemberDatabase.process_update(self,msg,input,output)
         return InvitationDatabase.process_update(self,msg,input,output) or update
 
-    def run(self, args=None): # pragma: no cover
-        from ekklesia.data import special_openwith, dummy_context
-        from ekklesia.backends import api_spec, session_context
+    def load_config(self,cfgfile):
+        from ekklesia.backends import api_spec
         from ekklesia.mail import gpg_spec, smtp_spec
-        from sqlalchemy import create_engine
-        args, parser = self.init_run('joint',
-            'synchronization of member databases and invitations',args)
         apis = api_spec('member_api')+api_spec('invitation_api')
         spec = members_spec+invitations_spec+gpg_spec+smtp_spec+apis
-        config = self.get_configuration(spec,args,'joint.ini')
+        config = self.get_configuration(spec,cfgfile,'joint.ini')
         jconfig = {}
         jconfig.update(config['members'])
         jconfig.update(config['invitations'])
         self.configure(config=jconfig,
             memberconfig=config['member_api'],invconfig=config['invitation_api'],
             gpgconfig=config['gnupg'],smtpconfig=config['smtp'])
+
+    def run(self, args=None): # pragma: no cover
+        from ekklesia.data import special_openwith, dummy_context
+        from ekklesia.backends import session_context
+        from sqlalchemy import create_engine
+        args, parser = self.init_run('joint',
+            'synchronization of member databases and invitations',args)
+        self.load_config(args.config)
         self.init_gnupg()
         if args.command=='push' and args.daemon:
             daemon = self.prepare_daemon(args.pid)

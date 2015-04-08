@@ -3,7 +3,8 @@ webtest
 markdown
 django-rest-swagger
 coverage
-pytest>=2.6.4
-pytest-django>=2.6.2
+pytest>=2.7
+pytest-django>=2.8
 pytest-pythonpath
 pytest-cache
+django-debug-toolbar>=1.3

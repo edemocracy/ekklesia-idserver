@@ -30,16 +30,22 @@ from django.core.exceptions import ValidationError
 from django.template.loader import render_to_string
 
 from django_extensions.db.fields import UUIDField
-from mptt.models import MPTTModel, TreeForeignKey, TreeManyToManyField
+from treebeard.mp_tree import MP_Node
 
 from django_countries.fields import CountryField
 #from phonenumber_field.modelfields import PhoneNumberField
-from ekklesia.models import ModelDiffMixin
 
-def send_broker_msg(msg, exchange, queue, connection=None):
+def send_broker_msg(msg, exchange, queue=None, connection=None):
     if not settings.BROKER_URL: return
+    if isinstance(connection,dict): # debug
+        msgs = connection.get(exchange)
+        if msgs is None:
+            connection[exchange] = [msg]
+        else: msgs.append(msg)
+        return
     from kombu import Connection, Exchange, Queue, Producer
     exchange = Exchange(exchange, 'fanout')
+    if not queue: queue = exchange # same name
     queue = Queue(queue, exchange=exchange)
     if connection:
         connection.Producer(serializer='json').publish(msg, exchange=exchange, declare=[queue])
@@ -52,40 +58,42 @@ def send_broker_msg(msg, exchange, queue, connection=None):
     with conn_context as conn:
         conn.Producer(serializer='json').publish(msg, exchange=exchange, declare=[queue])
 
-def notify_backends(status,uuid):
+def notify_registration(status,uuid,connection=None):
     msg = dict(format='member',version=(1,0),status=status,uuid=uuid)
-    send_broker_msg(msg, settings.BACKEND_EXCHANGE, settings.BACKEND_QUEUE)
+    send_broker_msg(msg, settings.REGISTER_EXCHANGE, connection=connection)
 
 #-------------------------------------------------------------------------------------
 
-class NestedGroup(MPTTModel,ModelDiffMixin):
+class NestedGroup(MP_Node):
     syncid = models.PositiveIntegerField(_('Nested group sync id'),unique=True,blank=True,null=True)
     name = models.CharField(max_length=50,unique=True,blank=True,null=True)
-    parent = TreeForeignKey('self', null=True, blank=True, related_name='children')
-        #limit_choices_to={'depth__gt':models.F('parent__depth')})
-    depth = models.PositiveIntegerField(blank=True,null=True) # 0=empty, 1=country,2=state,3=region,4=city,5=suburb
+    level = models.PositiveIntegerField(blank=True,null=True) # 0=empty, 1=country,2=state,3=region,4=city,5=suburb
     description = models.TextField(_('Description of the nested group'),blank=True)
     #is_fixed = models.BooleanField(_('whether the nested group may be modified'), default=True,
     #    help_text=_('Designates whether the nested group may be modified by apps and is not predetermined'))
-    class MPTTMeta:
-        order_insertion_by = ['name']
-        level_attr = 'mptt_level'
     def __unicode__(self): return self.name
 
+    @property
+    def parent(self):
+        return self.get_parent()
+
     def clean(self):
-        if not self.parent: return
-        pdepth = self.parent.depth
-        if not pdepth: return
-        if not self.depth: self.depth = pdepth+1
-        elif self.depth <= pdepth:
-            raise ValidationError('Depth must be larger then parent.')
+        parent = self.get_parent()
+        if not parent: return # root
+        plevel = parent.level
+        if not plevel: return
+        if not self.level: self.level = plevel+1
+        elif self.level <= plevel:
+            raise ValidationError('level must be larger than parent level.')
 
     def merge_with(self,target):
         """merge this nested group into its parent or a sibling and update all users."""
         # update users to target
-        assert self.parent == target or self.get_siblings().filter(pk=target).exists(), "cannot merge"
-        Account.objects.filter(department=self).update(department=target)
-        for child in self.get_children(): child.moveto(target)
+        assert self.get_parent() == target or self.is_sibling_of(target), "cannot merge"
+        self.members_set.all().add(target)
+        self.members_set.all().clear()
+        for child in self.get_children():
+            child.move(target,'last-child')
         self.delete()
 
 #-------------------------------------------------------------------------------------
@@ -95,7 +103,7 @@ class AccountManager(UserManager):
         return super(AccountManager,self).create_superuser(username, '', password,
                 status = self.model.SYSTEM, **extra_fields)
 
-class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
+class Account(AbstractBaseUser, PermissionsMixin):
     """
     Implementing a fully featured User model with admin-compliant permissions.
     Username and password are required. Other fields are optional. Emails must be unique.
@@ -163,7 +171,7 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
 
     status = models.PositiveIntegerField(_('user status'),choices=STATUS_CHOICES,default=GUEST)
     uuid = UUIDField(_('Member UUID'),unique=True,auto=False,blank=True,null=True) # for sync with external DB, empty if non-member
-    nested_groups = TreeManyToManyField('NestedGroup',blank=True, verbose_name=_('nested groups the users belongs to'))
+    nested_groups = models.ManyToManyField(NestedGroup,blank=True, verbose_name=_('nested groups the users belongs to'))
 
     verified_by = models.ManyToManyField("self",through="Verification",symmetrical=False,related_name='has_verified')
     verified = models.BooleanField(_('verified'), default=False,
@@ -205,18 +213,19 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
     is_publickey_verified.short_description = 'Public key verified'
 
     def get_nested_groups(self,parents=False):
-        if not parents: return self.nested_groups.all()
-        return set([g for ngroup in self.nested_groups.all() for g in ngroup.get_ancestors(include_self=True)])
+        ngroups = list(self.nested_groups.all())
+        if not parents: return ngroups
+        return set(ngroups+[g for ngroup in ngroups for g in ngroup.get_ancestors()])
 
     def get_verified_profile(self):
         ver = self.verifications.exclude(profile=u'')
         if not ver.count(): return None
-        return ver.latest('date_verified').profile
+        return ver.only('profile').latest('date_verified').profile
 
     def get_verified_public_id(self):
         ver = self.verifications.exclude(public_id=u'')
         if not ver.count(): return None
-        return ver.latest('date_verified').public_id
+        return ver.only('public_id').latest('date_verified').public_id
 
     def convert_to_member(self):
         if self.__class__==Account: return self
@@ -226,7 +235,7 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
             member.status = self.MEMBER
             member.save(update_fields=('status',))
         cursor = connection.cursor()
-        cursor.execute("DELETE FROM %s WHERE account_ptr_id = %s" % (self._meta.db_table, member.id))
+        cursor.execute("DELETE FROM %s WHERE account_ptr_id = %s" % (self._meta.db_table, member.pk))
         transaction.commit_unless_managed()
         return member
 
@@ -245,7 +254,7 @@ class Account(AbstractBaseUser, PermissionsMixin, ModelDiffMixin):
         self.email = email
         #user.is_active = True
         if self.status == self.NEWMEMBER:
-            notify_backends(status='registering',uuid=self.uuid)
+            notify_registration(status='registering',uuid=self.uuid)
         self.save(update_fields=('email',))
 
 class Verifier(Account):
@@ -293,7 +302,7 @@ class Verification(models.Model):
         if self.user == self.verifier:
             raise ValidationError('User and verifier must not be the same.')
 
-class Invitation(models.Model, ModelDiffMixin):
+class Invitation(models.Model):
     """Invitation model"""
     DELETED = 0
     NEW = 1
@@ -326,7 +335,7 @@ class ConfirmationManager(models.Manager):
     def confirm(self, confirmation_key):
         if not SHA1_RE.search(confirmation_key): return False
         try:
-            confirmation = self.get(confirmation_key=confirmation_key)
+            confirmation = self.select_related('user').get(confirmation_key=confirmation_key)
         except self.model.DoesNotExist:
             return False
         if not confirmation.confirmation_key_expired():
@@ -345,7 +354,7 @@ class ConfirmationManager(models.Manager):
         return self.create(user=user, confirmation_key=confirmation_key, email=email)
 
     def delete_expired(self):
-        for confirmation in self.all():
+        for confirmation in self.only('created','user').all():
             if confirmation.confirmation_key_expired():
                 confirmation.confirmation_failed()
 

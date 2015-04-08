@@ -9,9 +9,6 @@ endif
 # define $( ) as space
 $() $() := $() $()
 
-SASS_SRC = $(wildcard sass/*.s?ss)
-SASS_OUT = $(patsubst sass/%.sass,static/css/%.css,$(patsubst %.scss,%.sass,$(SASS_SRC)))
-
 TEMPLATE_DIRS = templates $(filter %/, $(wildcard */templates/))
 JADE_SRC = $(foreach dir, $(TEMPLATE_DIRS), $(wildcard $(dir)*.jade) $(wildcard $(dir)*/*.jade))
 JADE_OUT = $(patsubst %.jade,%.html,$(JADE_SRC))
@@ -22,7 +19,7 @@ dummy: all
 basicclean:
 	@-find . \( -name "__pycache__" -or -name ".cache" \) -exec rm -rvf "{}" \;
 	@-find . \( -name '*~' -or -name '*.py[co]' -or -name '._*' -or -name '.coverage' \) -exec rm -rvf "{}" \;
-	@-rm -rvf $(JADE_OUT) $(SASS_OUT) $(EXTRA_CLEAN)
+	@-rm -rvf $(JADE_OUT) $(EXTRA_CLEAN)
 
 %.html: %.jade
 	pyjade -e html $< | sed "s/|__pyjade_iter:1//" > $@
