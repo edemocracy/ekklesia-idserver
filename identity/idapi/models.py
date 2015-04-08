@@ -30,7 +30,6 @@ from django.core.checks import register
 from collections import OrderedDict
 from django_extensions.db.fields import UUIDField
 from jsonfield import JSONField
-from mptt.models import TreeForeignKey
 
 from accounts.models import Account
 
