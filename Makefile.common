@@ -26,5 +26,4 @@ basicclean:
 
 test-local:
 	@test -z "$(TEST_DEPS)" || $(MAKE) $(TEST_DEPS)
-	-coverage run -m py.test $(TEST_OPT)
-	-coverage report
+	coverage run -m py.test $(TEST_OPT) && coverage report

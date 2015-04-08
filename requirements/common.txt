@@ -17,7 +17,7 @@ unicodecsv
 # django
 django>=1.7.7, <1.8
 libsass
-django-mptt
+django-treebeard>=3.0
 django-extensions>=1.4.7
 django-configurations
 Pillow
