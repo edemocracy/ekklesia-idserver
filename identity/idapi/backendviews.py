@@ -182,18 +182,18 @@ def update_members(members,departments,crypto=True):
                 inv.delete()
                 continue
             # check whether activation failed or to be deleted
-            if twofactor:
-                if member['activate'] != True:
-                    inv.status = Invitation.FAILED
-                    inv.save()
-                    obj.delete()
-                    fail_uuids.append(uuid)
-                    continue
-                del member['activate']
+            if twofactor and member['activate'] != True:
+                inv.status = Invitation.FAILED
+                inv.save()
+                obj.delete()
+                fail_uuids.append(uuid)
+                continue
             inv.status = Invitation.REGISTERED
             inv.save()
             member['is_active'] = True
             reg_uuids.append(uuid)
+        if twofactor:
+            del member['activate']
         if 'department' in member:
             dep = member['department']
             del member['department']

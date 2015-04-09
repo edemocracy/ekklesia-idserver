@@ -19,7 +19,7 @@ setup(
     description='A framework for direct democracy in large organisations',
     long_description=README,
     classifiers=[
-    'Development Status :: 2 - Pre-Alpha',
+    'Development Status :: 4 - Beta Development Status',
         'Environment :: Web Environment',
         'Framework :: Django',
         'Intended Audience :: Other Audience',
@@ -37,6 +37,7 @@ setup(
         'console_scripts': [
             'members = ekklesia.backends.members:main_func',
             'invitations = ekklesia.backends.invitations:main_func',
+            'joint = ekklesia.backends.joint:main_func',
         ],
     }
 )

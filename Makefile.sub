@@ -69,7 +69,7 @@ distclean: clean
 	@rm -vf $(PROJ)/settings.py
 
 celery:
-	DJANGO_CONFIGURATION=$(CFG) celery -A $(PROJ) worker -l info --without-mingle --without-gossip
+	$(if $(CFG),DJANGO_CONFIGURATION=$(CFG),) celery -A $(PROJ) worker -l info --without-mingle --without-gossip
 
 celeryd:
 	celeryd -A $(PROJ) worker -l info -D -f celery.log --without-mingle --without-gossip

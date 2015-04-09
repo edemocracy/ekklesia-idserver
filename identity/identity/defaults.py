@@ -168,7 +168,7 @@ def defaults(production=False,admin=False,site=0):
 		if SITE_ID:
 			INSTALLED_APPS += ('django.contrib.sites',)
 		if admin:
-			INSTALLED_APPS += ('django_admin_bootstrapped.bootstrap3','django_admin_bootstrapped',
+			INSTALLED_APPS += ('django_admin_bootstrapped',
 				'django.contrib.admin','django.contrib.admindocs')
 		if DEBUG:
 			INSTALLED_APPS += ('rest_framework_swagger','debug_toolbar')

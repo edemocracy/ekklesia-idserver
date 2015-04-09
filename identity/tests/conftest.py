@@ -36,6 +36,9 @@ def tmp_json(data):
     tmp.seek(0)
     return tmp
 
+def listset_equal(a, b):
+    return set(map(tuple,a)) == set(map(tuple,b))
+
 @fixture(scope='session')
 def ngroups(db):
     from accounts.models import NestedGroup

@@ -22,7 +22,7 @@
 from __future__ import absolute_import
 from pytest import fixture, raises, mark
 
-from tests.conftest import api, sender, receiver, basic_auth, tmp_json
+from tests.conftest import api, sender, receiver, basic_auth, tmp_json, listset_equal
 
 @mark.parametrize("variant", ['','2fac']) # update
 @mark.django_db
@@ -120,8 +120,9 @@ def test_member(request,accounts,invitations,bilateral,client,variant,settings):
     assert encrypted and signed
     data = [['uid1',''],['uid2',''],['uid6','']]
     if not twofactor: data = [v[:-1] for v in data]
+    assert listset_equal(members['data'], data)
     assert members == dict(fields=['uuid']+activate, version=[1, 0], format='member',
-         data=data)
+         data=members['data'])
 
 @mark.django_db
 def test_invitation(request,accounts,bilateral,invitations,client):

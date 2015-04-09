@@ -357,7 +357,7 @@ def test_registerkey(request,accounts,mails,bilateral,defect):
     assert server.send(msg)
     assert len(imapsend)==1
     get_mails(joint=True,debug=debug,keep=False)
-    process_register(debug=debug)
+    #process_register(debug=debug)
     send_mails(joint=True,debug=debug)
 
     if defect=='unknown':
