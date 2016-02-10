@@ -16,5 +16,5 @@ block content
     p
         | You will be redirected to the main page in {{ redirect_delay }} seconds.
         | Please click 
-        a(href='{{ next|default:"/"}}') here
+        a(href="{{ next|default:'/'}}") here
         |  if it doesn't work.

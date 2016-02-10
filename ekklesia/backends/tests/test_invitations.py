@@ -107,9 +107,9 @@ def setup_db(dbtype=InvitationDatabase,engine=None,import_extra=[],reflect=True,
     global current_db
     if current_db: current_db.drop_db()
     if dbtype==MemberInvDatabase:
-        invite_import=['id','member_id','code','status','sent','lastchange']
+        invite_import=['id','member_id','code','status','sent','senttime','lastchange']
     else:
-        invite_import=['uuid','email','code','status','sent','lastchange']
+        invite_import=['uuid','email','code','status','sent','senttime','lastchange']
     config = dict(invite_import=invite_import+import_extra,database=engine,io_key=receiver)
     db = dbtype().configure(config=config,gpgconfig=dict(sender=sender),**configs)
     db.set_logger('invitation','warning')
@@ -176,19 +176,25 @@ def remove_lastchange(data,filled=True):
         assert data['format']=='invitation'
         i = data['fields'].index('lastchange')
         data['fields'].pop(i)
+        j = data['fields'].index('senttime')
+        data['fields'].pop(j)
         for row in data['data']:
             v = row.pop(i)
             assert not filled or v
+            v = row.pop(j)
         return data
     data = data.splitlines(False)
     assert data[0]=='invitation,1.0'
     f = data[1].split(',')
     i = f.index('lastchange')
+    f.pop(i)
+    j = f.index('senttime')
     res = data[0]+'\n'
     for line in data[1:]:
         f = line.split(',')
         v = f.pop(i)
         assert not filled or v, 'lastchange missing'
+        v = f.pop(j)
         res += ','.join(f) + '\n'
     return res
 
@@ -290,12 +296,12 @@ def test_import_mail(empty_db):
     assert inv6.status==IStatusType.deleted
     assert inv7.status==IStatusType.new and inv7.sent==ISentStatusType.unsent
 
-inv_mailreset = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid','email','code','status','sent','lastchange'],
+inv_mailreset = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid','email','code','status','sent','senttime','lastchange'],
         'data': [
-            ['uid01', receiver, 'inv1', 'new', 'unsent', None],
-            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent', None],
-            ['uid05', 'inv5@localhost', 'inv5', 'uploaded', 'sent', None],
-            ['uid06', 'inv6@localhost', 'inv6', 'uploaded', 'sent', None],
+            ['uid01', receiver, 'inv1', 'new', 'unsent', None, None],
+            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent', None, None],
+            ['uid05', 'inv5@localhost', 'inv5', 'uploaded', 'sent', None, None],
+            ['uid06', 'inv6@localhost', 'inv6', 'uploaded', 'sent', None, None],
         ]}
 
 inv_mailupd = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid','email'],
@@ -393,19 +399,21 @@ new,failed    -> error or new,new ?
 new,registered -> error
 """
 
+some_time = '2015-01-01T12:00:00'
+
 inv_pre = {'format': 'invitation', 'version': [1, 0],
-        'fields': ['uuid','email','code','status','sent','lastchange'],
+        'fields': ['uuid','email','code','status','sent','senttime','lastchange'],
         'data': [
-            ['uid01', receiver, 'inv1', 'new', 'unsent', None],
-            ['uid02', 'inv2@localhost', 'inv2', 'new', 'unsent', None],
-            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent', None],
-            ['uid05', 'inv5@localhost', 'inv5', 'uploaded', 'retry', None],
-            ['uid06', 'inv6@localhost', 'inv6', 'uploaded', 'sent', None],
-            ['uid07', 'inv7@localhost', 'inv7', 'registered', 'unsent', None],
-            ['uid08', 'inv8@localhost', 'inv8', 'failed', 'unsent', None],
-            ['uid09', 'inv9@localhost', 'inv9', 'failed', 'sent', None],
-            ['uid10', 'inv10@localhost', 'inv10', 'new', 'unsent', None],
-            ['uid11', 'inv11@localhost', 'inv11', 'new', 'unsent', None],
+            ['uid01', receiver, 'inv1', 'new', 'unsent', None, None],
+            ['uid02', 'inv2@localhost', 'inv2', 'new', 'unsent', None, None],
+            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent', None, None],
+            ['uid05', 'inv5@localhost', 'inv5', 'uploaded', 'retry', some_time, None],
+            ['uid06', 'inv6@localhost', 'inv6', 'uploaded', 'sent', some_time, None],
+            ['uid07', 'inv7@localhost', 'inv7', 'registered', 'unsent', None, None],
+            ['uid08', 'inv8@localhost', 'inv8', 'failed', 'unsent', None, None],
+            ['uid09', 'inv9@localhost', 'inv9', 'failed', 'sent', some_time, None],
+            ['uid10', 'inv10@localhost', 'inv10', 'new', 'unsent', None, None],
+            ['uid11', 'inv11@localhost', 'inv11', 'new', 'unsent', None, None],
         ]}
 
 inv_down = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid', 'status'],
@@ -580,17 +588,22 @@ def test_send(request, empty_db, havesmtp, bilateral):
     post = {}
     db.export_invitations(post,allfields=True,format='json')
     field_uuid = post['fields'].index('uuid')
-    field_sent = input['fields'].index('sent')
+    field_sent = post['fields'].index('sent')
+    ofield_sent = input['fields'].index('sent')
     field_lchange = post['fields'].index('lastchange')
+    field_senttime = post['fields'].index('senttime')
     for i,inv in enumerate(post['data']):
         orig = input['data'][i]
+        mod = list(orig)
         assert inv[field_lchange]
         inv[field_lchange] = None # delete lastchange
+        assert inv[field_sent] == 'unsent' or inv[field_senttime]
+        if inv[field_sent] != 'unsent':
+            inv[field_senttime] = None if mod[ofield_sent] == 'unsent' else some_time
         if not inv[field_uuid] in changed:
             assert inv == orig, "unexpected change"
             continue
-        mod = list(orig)
-        mod[field_sent] = 'sent' if havesmtp else 'failed'
+        mod[ofield_sent] = 'sent' if havesmtp else 'failed'
         assert inv == mod, "invalid change"
         if not havesmtp: continue
         imap = accounts[inv[field_uuid]]

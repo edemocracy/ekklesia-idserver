@@ -71,6 +71,7 @@ from ekklesia import FormattedWarning
 class IStatusType(DeclEnum):
     deleted = EnumSymbol('deleted')
     new = EnumSymbol('new')
+    expired = EnumSymbol('expired')
     uploaded = EnumSymbol('uploaded')
     failed = EnumSymbol('failed')
     registered = EnumSymbol('registered')
@@ -86,7 +87,7 @@ invitations_spec ='''
 # the table name for invitations
 invite_table = string(default='invitations')
 # columns to import from the table
-invite_import = string_list(default=list('uuid','email','code','status','sent','lastchange'))
+invite_import = string_list(default=list('uuid','email','code','status','sent','senttime','lastchange'))
 # allow check_email, if empty disabled
 invite_check_email = string
 # email template for invitations
@@ -180,6 +181,7 @@ class InvitationDatabase(AbstractDatabase):
                 code = Column(String(36), nullable=False, unique=True)
                 status = Column(IStatusType.db_type(), nullable=False, default=IStatusType.new)
                 sent = Column(ISentStatusType.db_type(), nullable=False, default=ISentStatusType.unsent)
+                senttime = Column(DateTime, nullable=True, default=None)
                 lastchange = Column(DateTime, nullable=True, default=datetime.utcnow)
             else: # pragma: no cover
                 __table__ = Table(self.invite_table, self.Base.metadata,
@@ -214,6 +216,7 @@ class InvitationDatabase(AbstractDatabase):
                      if status == IStatusType.new:
                          inv.code = str(uuid4())
                 inv.sent = ISentStatusType.unsent
+                inv.senttime = None
                 inv.change()
 
             def delete(inv):
@@ -632,6 +635,7 @@ class InvitationDatabase(AbstractDatabase):
                     self.error('signing message for %s' % email)
                     break
             if not dryrun:
+                from datetime import datetime
                 try:
                     smtp.send(msg)
                     inv.sent = ISentStatusType.sent
@@ -640,6 +644,7 @@ class InvitationDatabase(AbstractDatabase):
                 except (smtplib.SMTPDataError,smtplib.SMTPSenderRefused,smtplib.SMTPHeloError):
                     inv.sent = ISentStatusType.retry # retry
                 inv.change()
+                inv.senttime = datetime.utcnow()
                 session.commit() # critical data
             count +=1
         if not debug_smtp: smtp.close()

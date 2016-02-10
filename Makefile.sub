@@ -46,7 +46,7 @@ $(PROJ)/settings.py:
 	test -f $@ || cp $(PROJ)/settings-example.py $@
 
 $(SASS_OUT): $(SASS_SRC)
-	@compass compile -c ../config.rb
+	sassc $< $@
 
 #-----------------------------------------------------------------------------------
 		

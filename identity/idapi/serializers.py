@@ -35,7 +35,7 @@ class NestedGroupSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = NestedGroup
         fields = ('id', 'name', 'parent', 'level','description')
-        #extra_kwargs = {'parent': {'view_name': 'v1:nestedgroup-detail'}}
+        extra_kwargs = {'parent': {'view_name': 'v1:nestedgroup-detail'}}
 
 class AccountSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:

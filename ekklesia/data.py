@@ -74,6 +74,12 @@ def freeze(obj, deep=True):
     elif type(obj)==set:
         if deep: return frozenset((freeze(sub,deep) for sub in obj))
         return frozenset(obj)
+    def no_init(self,*args,**kwargs):
+        raise ValueError
+    def no_setattr(self, item, value):
+        raise ValueError
+    obj.__init__ = no_init
+    obj.__setattr__ = no_setattr
     return obj
 
 def init_object(obj, **kwargs):

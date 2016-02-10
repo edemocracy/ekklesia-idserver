@@ -64,9 +64,12 @@ def keys(request):
     gpg2 = gnupg.GPG(keyring=keyrings[1],secring=secrings[1],verbose=verbose)
     gpg3 = gnupg.GPG(keyring=keyrings[2],secring=secrings[2],verbose=verbose)
     if keygen: # pragma: no cover
-        key1 = gpg1.gen_key(gpg1.gen_key_input(name_email=sender,key_length=1024,passphrase=passphrase)).fingerprint
-        key2 = gpg2.gen_key(gpg2.gen_key_input(name_email=receiver,key_length=1024)).fingerprint
-        key3 = gpg3.gen_key(gpg3.gen_key_input(name_email=third,key_length=1024)).fingerprint
+        key1 = gpg1.gen_key(gpg1.gen_key_input(name_email=sender,key_length=1024,
+            passphrase=passphrase,expire_date='2030-01-01')).fingerprint
+        key2 = gpg2.gen_key(gpg2.gen_key_input(name_email=receiver,key_length=1024,
+            expire_date='2030-01-01')).fingerprint
+        key3 = gpg3.gen_key(gpg3.gen_key_input(name_email=third,key_length=1024,
+            expire_date='2030-01-01')).fingerprint
     else:
         key1 = find_gnupg_key(gpg1,sender)
         key2 = find_gnupg_key(gpg2,receiver)

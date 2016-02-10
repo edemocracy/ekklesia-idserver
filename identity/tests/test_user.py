@@ -296,7 +296,7 @@ def do_oauth(accounts,apps,variant,settings,otp):
                 params['error_description'] == 'scope bad is not permitted for this client'
             return
         elif variant=='client_id2':
-            assert params['error']=='invalid_client_id'
+            assert params['error']=='invalid_request'
             return
         code = params['code']
     if not expect is noop: return

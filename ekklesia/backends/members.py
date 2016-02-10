@@ -374,9 +374,10 @@ class MemberDatabase(AbstractDatabase):
     def reflect_classes(self):
         from ekklesia.backends import reflect_class
         from ekklesia.data import frozendict
+        import six
         self.member_columns, member_types = reflect_class(self.Member)
         self.department_columns, department_types = reflect_class(self.Department)
-        deptype = int if self.department_spec == 'number' else str
+        deptype = int if self.department_spec == 'number' else six.text_type
         member_types['department'] = deptype
         department_types['parent'] = deptype
         self.member_types = frozendict(member_types)

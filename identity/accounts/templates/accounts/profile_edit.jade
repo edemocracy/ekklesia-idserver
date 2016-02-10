@@ -8,7 +8,7 @@ block header_title
 block content
     h1: -blocktrans with name=profile.username
         | Profile of {{ name }}
-    form(method='post', action="{% url 'accounts:profile_edit' profile.username %}",enctype!='{{form.is_multipart|yesno:"multipart/form-data,"}}')
+    form(method='post', action="{% url 'accounts:profile_edit' profile.username %}",enctype!="{{form.is_multipart|yesno:'multipart/form-data,'}}")
         -csrf_token
         include default_form
         input(type='submit', value='Submit')

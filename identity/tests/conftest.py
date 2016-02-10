@@ -39,7 +39,7 @@ def tmp_json(data):
 def listset_equal(a, b):
     return set(map(tuple,a)) == set(map(tuple,b))
 
-@fixture(scope='session')
+@fixture(scope='function')
 def ngroups(db):
     from accounts.models import NestedGroup
     root = NestedGroup.add_root(syncid=1,name='root',level=1,description='root')
@@ -60,7 +60,7 @@ def create_user(username,password,cls=None,nested_groups=[],**kwargs):
         through.objects.bulk_create((through(nestedgroup_id=ngroup.pk,account_id=user.pk) for ngroup in nested_groups))
     return user
 
-@fixture(scope='session')
+@fixture(scope='function')
 def accounts(db,ngroups):
     from accounts.models import Account, Guest, Verifier
     admin = create_user('admin','admin',is_staff=True,status=Account.SYSTEM)
@@ -78,14 +78,14 @@ def accounts(db,ngroups):
         first_name='Friendly',last_name='Foe',address='Milky Way',city='Atlantis',postal_code=1234,country='XX')
     return dict(admin=admin,member1=member1,member2=member2,verify=verify,guest=guest)
 
-@fixture(scope='session')
+@fixture(scope='function')
 def invitations(db):
     from accounts.models import Invitation
     Invitation.objects.create(code='inv1',uuid='uid1',status=Invitation.REGISTERED)
     Invitation.objects.create(code='inv4',uuid='uid4')
     Invitation.objects.create(code='inv5',uuid='uid5',status=Invitation.FAILED)
 
-@fixture(scope='session')
+@fixture(scope='function')
 def apps(db,accounts):
     from idapi.models import IDApplication
     portal = IDApplication.objects.create(name='portal',client_id='portal',client_secret='secret',user=accounts['admin'],
@@ -111,7 +111,7 @@ def apps(db,accounts):
     )
     return dict(portal=portal,voting=voting,debug=debug)
 
-@fixture(scope='session')
+@fixture(scope='function')
 def tokens(db,accounts,apps):
     from oauth2_provider.models import Grant, AccessToken
     from django.utils import timezone

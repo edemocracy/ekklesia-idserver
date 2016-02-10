@@ -37,7 +37,6 @@ from django.core.urlresolvers import reverse
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.auth import logout
 
-from endless_pagination.views import AjaxListView
 import accounts.models as models
 import accounts.forms as forms
 from accounts.models import Account
@@ -126,6 +125,7 @@ class IDAuthorizationView(OAuthLibMixin, FormView):
     template_name = 'accounts/authorize.html'
     server_class = Server
     validator_class = oauth2_settings.OAUTH2_VALIDATOR_CLASS
+    oauthlib_backend_class = oauth2_settings.OAUTH2_BACKEND_CLASS
     include_login = True
 
     def dispatch(self, request, *args, **kwargs):
