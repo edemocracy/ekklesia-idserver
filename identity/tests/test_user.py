@@ -39,6 +39,7 @@ class DummyContext(object):
     def __exit__(self, et, ev, t): pass
 
 def check_response(response,url=None,status=200,redirects=None,host='http://testserver'):
+    import django
     if redirects is None:
         if url: redirects = 1
         else: redirects = 0
