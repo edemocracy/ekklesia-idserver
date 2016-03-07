@@ -73,14 +73,15 @@ class ApplicationUUIDAdmin(admin.ModelAdmin):
 
 @admin.register(models.UserListMember)
 class UserListMemberAdmin(admin.ModelAdmin):
-    readonly_fields = ('userlist', 'member', 'no')
+    fields = ('userlist', 'member')
+    readonly_fields = ('no',)
     list_display = ('userlist','no', 'member')
     ordering = ['userlist','no']
     search_fields = ['member__username','^member__uuid','^member__email']
 
 class UserListMemberInline(admin.TabularInline):
     model = models.UserListMember
-    readonly_fields = UserListMemberAdmin.readonly_fields
+    fields = UserListMemberAdmin.fields
     extra = 1
 
 @user_passes_test(lambda u: u.is_superuser) # only admin

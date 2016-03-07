@@ -22,7 +22,7 @@
 from __future__ import absolute_import
 from pytest import fixture, raises, mark
 
-from tests.conftest import api, sender, receiver, basic_auth, tmp_json, listset_equal
+from tests.conftest import api, sender, receiver, basic_auth, tmp_json, listset_equal, create_user
 
 @mark.parametrize("variant", ['','2fac']) # update
 @mark.django_db
@@ -39,11 +39,11 @@ def test_member(request,accounts,invitations,bilateral,client,variant,settings):
     Invitation.objects.create(code='inv6',secret='password6',uuid='uid6',status=Invitation.REGISTERING)
     Invitation.objects.create(code='inv7',secret='password7',uuid='uid7',status=Invitation.REGISTERING)
     Invitation.objects.create(code='inv8',secret='password8',uuid='uid8',status=Invitation.REGISTERING)
-    member6 = Account.objects.create(username='member6',status=Account.NEWMEMBER,is_active=False,
+    member6 = create_user(username='member6',status=Account.NEWMEMBER,is_active=False,
         email='member6@localhost',uuid='uid6')
-    member7 = Account.objects.create(username='member7',status=Account.NEWMEMBER,is_active=False,
+    member7 = create_user(username='member7',status=Account.NEWMEMBER,is_active=False,
         email='member7@localhost',uuid='uid7')
-    member8 = Account.objects.create(username='member8',status=Account.NEWMEMBER,is_active=False,
+    member8 = create_user(username='member8',status=Account.NEWMEMBER,is_active=False,
         email='member8@localhost',uuid='uid8')
     conf8 = EMailConfirmation.objects.create(user=member8, confirmation_key='key8')
 

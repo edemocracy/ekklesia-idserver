@@ -49,11 +49,15 @@ def ngroups(db):
     indep = NestedGroup.add_root(syncid=None,name='indep',level=1)
     return dict(root=root,sub=sub,subsub=subsub,sub2=sub2,indep=indep)
 
-def create_user(username,password,cls=None,nested_groups=[],**kwargs):
+def create_user(username,password=None,cls=None,nested_groups=[],**kwargs):
     from accounts.models import Account
+    from django.utils import timezone
     if cls is None: cls = Account
+    if not 'last_login' in kwargs:
+        kwargs['last_login'] = timezone.now()
     user = cls(username=username,**kwargs)
-    user.set_password(password)
+    if password is not None:
+        user.set_password(password)
     user.save()
     if nested_groups:
         through = user.nested_groups.through

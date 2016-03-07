@@ -271,8 +271,6 @@ class IDAuthorizationView(OAuthLibMixin, FormView):
         kwargs['application'] = app
         kwargs['login'] = self.include_login and not self.two_factor and not self.request.user.is_authenticated()
         kwargs.update(credentials)
-        if kwargs['login'] and django.VERSION[1]<6:
-            self.request.session.set_test_cookie()
         return kwargs
 
     def form_valid(self, form):
@@ -295,17 +293,19 @@ class IDAuthorizationView(OAuthLibMixin, FormView):
             if app.two_factor_auth and not self.request.user.is_verified():
                 self.oauth_error(self.request,AccessDeniedError,description="Two-factor authorization failed")
             self.check_scopes(self.request, app, scopes.split(' '))
-            templogin = False
+            logout = False
             if self.include_login and not self.request.user.is_authenticated():
                 # Okay, security check complete. Log the user in.
+                if app.keep_login: # keep login until browser closed
+                    logout = False
+                    settings.SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+                else:
+                    logout = True
                 auth_login(self.request, form.get_user())
-                templogin = True
-                if django.VERSION[1]<6 and self.request.session.test_cookie_worked():
-                    self.request.session.delete_test_cookie()
             uri, headers, body, status = self.create_authorization_response(
                 request=self.request, scopes=scopes, credentials=credentials, allow=allow)
             self.success_url = uri
-            if templogin: auth_logout(self.request)
+            if logout: auth_logout(self.request)
             #log.debug("Success url for the request: {0}".format(self.success_url))
             return super(IDAuthorizationView, self).form_valid(form)
         except OAuthToolkitError as error:
@@ -513,12 +513,13 @@ A confirmation link has been sent to the email address you supplied.""")
 
     def register(self, send_email=True, **cleaned_data):
         from django.db import transaction
+        from django.utils import timezone
         from django.contrib.sites.shortcuts import get_current_site
         site = get_current_site(self.request)
         username, email, password = cleaned_data['username'], cleaned_data['email'], cleaned_data['password']
         with transaction.atomic():
             new_user = self.user_class.objects.create_user(username, None, password,
-                status=Account.DELETED)
+                status=Account.DELETED, last_login=timezone.now())
             new_user.email = None
             new_user.is_active = False
             new_user.save(update_fields=['is_active'])

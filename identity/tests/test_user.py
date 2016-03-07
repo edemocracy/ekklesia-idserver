@@ -46,7 +46,8 @@ def check_response(response,url=None,status=200,redirects=None,host='http://test
     assert response.status_code == status
     if not redirects: return
     redir = response.redirect_chain[-1]
-    assert redir[0] == host+url and redir[1]==302
+    target = url if django.VERSION[1]>8 else host+url # RFC 7231
+    assert redir[0] == target and redir[1]==302
 
 @mark.parametrize("variant", ['','2fac','nocode','invitation_code','secret',
     'username','email','email2','noemail','password','nopassword','captcha','tos','confkey','expired'])

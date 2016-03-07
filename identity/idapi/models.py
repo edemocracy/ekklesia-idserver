@@ -52,6 +52,7 @@ class IDApplication(AbstractApplication):
     push_secret = models.CharField(max_length=255, blank=True,
                                      default=generate_client_secret)
     two_factor_auth = models.NullBooleanField(_('Whether to require two factor authentication'), default=False, null=True)
+    keep_login = models.BooleanField('Whether to keep the user logged in', default=False)
 
 #-------------------------------------------------------------------------------------
 
