@@ -24,9 +24,6 @@ local_settings.py
 /ekklesia.egg-info/
 #/static/
 /identity/identity/settings.py
-/identity/accounts/migrations
-/identity/idapi/migrations
-/identity/oauthext/migrations
 /identity/init.json
 /identity/backup*.json
 /identity/accounts/templates/*.html
