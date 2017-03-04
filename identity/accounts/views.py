@@ -395,8 +395,8 @@ def password_reset_confirm(request, uidb64=None, token=None,
                                 current_app=current_app)
     context = {
         'title': _('Password reset unsuccessful'),
-        'message': """The password reset link was invalid, possibly because it has already been used.
-Please request a new password reset.""",
+        'message': _("""The password reset link was invalid, possibly because it has already been used.
+Please request a new password reset."""),
     }
     if extra_context is not None: context.update(extra_context)
     return TemplateResponse(request, message_template, context,
@@ -494,15 +494,15 @@ class RegistrationView(FormView):
     disallowed_url = getattr(settings, 'REGISTRATION_CLOSED_URL','/')
     form_class = forms.RegistrationForm
     http_method_names = ['get', 'post', 'head', 'options', 'trace']
-    success = ('Registration complete',"""
+    success = (_('Registration complete'),_("""
 Please complete your registration by confirming your email.
-A confirmation link has been sent to the email address you supplied.""")
+A confirmation link has been sent to the email address you supplied."""))
     template_name = 'registration/registration_form.html'
 
     def dispatch(self, request, *args, **kwargs):
         if not self.registration_allowed():
             return render(self.request, message_template,
-                dict(title='Registration closed',message='Registration is currently closed.'))
+                dict(title=_('Registration closed'),message=_('Registration is currently closed.')))
         logout(request) # make sure user is logged out
         return super(RegistrationView, self).dispatch(request, *args, **kwargs)
 
@@ -582,16 +582,16 @@ class EMailConfirmationView(TemplateView):
         context = super(EMailConfirmationView, self).get_context_data(**kwargs)
         confirmed_user = self.confirm(**kwargs)
         if confirmed_user:
-            context['title'] = "Email confirmed"
-            context['message'] = '''Your email %s has been successfully confirmed.
-Your account will be activated shorlty, after which you may login.''' % confirmed_user.email
+            context['title'] = _("Email confirmed")
+            context['message'] = _('''Your email %s has been successfully confirmed.
+Your account will be activated shorlty, after which you may login.''') % confirmed_user.email
             #print type(confirmed_user), confirmed_user.is_active
         else:
-            context['title'] = "E-Mail confirmation failed"
-            context['message'] = """
+            context['title'] = _("E-Mail confirmation failed")
+            context['message'] = _("""
 Sorry, it didn't work. Either your confirmation link was incorrect, or
 the confirmation key for your account has expired; confirmation keys are
-only valid for %s days.""" % humanize.apnumber(settings.EMAIL_CONFIRMATION_DAYS)
+only valid for %s days.""") % humanize.apnumber(settings.EMAIL_CONFIRMATION_DAYS)
         return context
 
     def confirm(self, confirmation_key):

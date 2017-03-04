@@ -44,8 +44,8 @@ def send_broker_msg(msg, exchange, queue=None, connection=None):
         else: msgs.append(msg)
         return
     from kombu import Connection, Exchange, Queue, Producer
-    exchange = Exchange(exchange, 'fanout')
     if not queue: queue = exchange # same name
+    exchange = Exchange(exchange, 'fanout')
     queue = Queue(queue, exchange=exchange)
     if connection:
         connection.Producer(serializer='json').publish(msg, exchange=exchange, declare=[queue])
@@ -393,7 +393,6 @@ class EMailConfirmation(models.Model):
 
     def send_confirmation_email(self, domain, use_https=False):
         from django.core.mail import send_mail
-        from django.core.urlresolvers import reverse
         ctx_dict = {
             'confirmation_key': self.confirmation_key,
             'expiration_days': settings.EMAIL_CONFIRMATION_DAYS,

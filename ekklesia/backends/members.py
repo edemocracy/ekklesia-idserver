@@ -895,7 +895,7 @@ class MemberDatabase(AbstractDatabase):
                 self.info('database intialized')
                 if args.initial:
                     args.input = args.initial
-                    args.decrypt = args.verify = args.all = False
+                    args.decrypt = args.verify = args.all = args.sync = False
                     self.run_import_members(args)
                 return
             self.open_db(engine,mode='open')

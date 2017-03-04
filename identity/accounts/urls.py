@@ -18,19 +18,19 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # For more details see the file COPYING.
 
-from django.conf.urls import patterns, include, url
+from django.conf.urls import include, url
 from django.views.generic import TemplateView
 import accounts.views as views
 import accounts.forms as forms
 import django.contrib.auth.views as auth
-
+from ekklesia.views import logout_delay
 from django_otp.forms import OTPAuthenticationForm
 
 urlpatterns = [
     url(r'^$', views.index_view, name='index'),
     #url(r'^login/$', 'django.contrib.auth.views.login', {'template_name': 'registration/login.html'},name='login'),
     url(r'^otplogin/$', views.otp_login,name='otplogin'),
-    url(r'^logout/$', 'ekklesia.views.logout_delay', {'next_page':'/', 'redirect_delay': 5 },name='logout'),
+    url(r'^logout/$', logout_delay, {'next_page':'/', 'redirect_delay': 5 },name='logout'),
 
     url(r'^password_reset/$', views.password_reset, name='password_reset'),
     url(r'^reset/(?P<uidb64>[0-9A-Za-z_\-]+)/(?P<token>[0-9A-Za-z]{1,13}-[0-9A-Za-z]{1,20})/$',

@@ -18,10 +18,11 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # For more details see the file COPYING.
 
-from django.conf.urls import patterns, include, url
+from django.conf.urls import include, url
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from rest_framework_swagger.views import get_swagger_view
 
 from accounts.admin import verification_site
 import accounts.views
@@ -42,7 +43,7 @@ urlpatterns += [
 if getattr(settings, 'DEBUG', False):
     urlpatterns += [
         url(r'^api-auth/', include('rest_framework.urls', namespace='rest_framework')),
-        url(r'^api-docs/', include('rest_framework_swagger.urls')),
+        url(r'^api-docs/', get_swagger_view(title='Identity API')),
     ]+static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 #urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 

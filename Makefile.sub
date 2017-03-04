@@ -56,7 +56,7 @@ all:
 	@echo "make ($(subst $( ),|,$(TARGETS)))"
 
 backup:
-	$(MANAGE) dumpdata $(OPT) --indent=2 --natural $(EOPT) > $(BACKUP) 
+	$(MANAGE) dumpdata $(OPT) --indent=2 --natural-primary $(EOPT) > $(BACKUP)
 # | grep -v '"\(date_joined\|last_login\)"'
 
 check:

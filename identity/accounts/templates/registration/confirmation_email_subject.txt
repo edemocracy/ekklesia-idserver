@@ -1,1 +1,1 @@
-Activate your email address
+{% load i18n %}{% trans "Activate your email address" %}
