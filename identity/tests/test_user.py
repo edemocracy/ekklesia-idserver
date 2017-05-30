@@ -119,7 +119,7 @@ def test_register_member(accounts,invitations,variant,settings):
         import datetime
         conf.created -= datetime.timedelta(days=settings.EMAIL_CONFIRMATION_DAYS*2)
         conf.save()
-    EMailConfirmation.objects.delete_expired()
+    EMailConfirmation.objects.handle_expired()
 
     response = client.get(url,follow=True)
     check_response(response)
@@ -474,7 +474,7 @@ def test_email_change(accounts,variant):
         import datetime
         conf.created -= datetime.timedelta(days=settings.EMAIL_CONFIRMATION_DAYS*2)
         conf.save()
-    EMailConfirmation.objects.delete_expired()
+    EMailConfirmation.objects.handle_expired()
 
     response = client.get(url,follow=True)
     check_response(response)

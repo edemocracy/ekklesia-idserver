@@ -338,7 +338,7 @@ class ConfirmationManager(models.Manager):
             confirmation = self.select_related('user').get(confirmation_key=confirmation_key)
         except self.model.DoesNotExist:
             return False
-        if not confirmation.confirmation_key_expired():
+        if confirmation.confirmation_key_active():
             user = confirmation.user
             user.email_confirmed(confirmation.email)
             confirmation.delete()
@@ -353,9 +353,9 @@ class ConfirmationManager(models.Manager):
         confirmation_key = hashlib.sha1(token.encode('ascii')).hexdigest()
         return self.create(user=user, confirmation_key=confirmation_key, email=email)
 
-    def delete_expired(self):
+    def handle_expired(self):
         for confirmation in self.only('created','user').all():
-            if confirmation.confirmation_key_expired():
+            if not confirmation.confirmation_key_active():
                 confirmation.confirmation_failed()
 
 class EMailConfirmation(models.Model):
@@ -374,12 +374,12 @@ class EMailConfirmation(models.Model):
     def __unicode__(self):
         return u"E-Mail confirmation for %s" % self.user
 
-    def confirmation_key_expired(self):
+    def confirmation_key_active(self):
         import datetime
         from django.utils import timezone
         expiration_date = datetime.timedelta(days=settings.EMAIL_CONFIRMATION_DAYS)
-        return self.created + expiration_date <= timezone.now()
-    confirmation_key_expired.boolean = True
+        return self.created + expiration_date > timezone.now()
+    confirmation_key_active.boolean = True
 
     def confirmation_failed(self):
         user = self.user

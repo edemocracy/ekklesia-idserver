@@ -305,8 +305,9 @@ class InvitationAdmin(admin.ModelAdmin):
 
 @admin.register(models.EMailConfirmation)
 class EMailConfirmationAdmin(admin.ModelAdmin):
-    actions = ['confirm_emails', 'resend_confirmation_email']
-    list_display = ('user', 'confirmation_key_expired')
+    actions = ['confirm_emails', 'resend_confirmation_email', 'handle_expired']
+    list_display = ('user', 'confirmation_key_active')
+    fields = ('user', 'email', 'confirmation_key', 'created', 'confirmation_key_active')
     raw_id_fields = ['user']
     search_fields = ('user__username', 'user__first_name', 'user__last_name')
 
@@ -322,6 +323,12 @@ class EMailConfirmationAdmin(admin.ModelAdmin):
         from django.contrib.sites.shortcuts import get_current_site
         site = get_current_site(request)
         for confirmation in queryset:
-            if not confirmation.confirmation_key_expired():
-                profile.send_confirmation_email(domain=site.domain, use_https=self.request.is_secure())
+            if confirmation.confirmation_key_active():
+                confirmation.send_confirmation_email(domain=site.domain, use_https=request.is_secure())
     resend_confirmation_email.short_description = _("Re-send confirmation emails")
+
+    def handle_expired(self, request, queryset):
+        for confirmation in queryset:
+            if not confirmation.confirmation_key_active():
+                confirmation.confirmation_failed()
+    handle_expired.short_description = _("Handle expired confirmation emails")
