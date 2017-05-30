@@ -309,12 +309,18 @@ class Invitation(models.Model):
     REGISTERED = 2
     FAILED = 3
     REGISTERING = 4
+    VERIFY = 5
+    VERIFIED = 6
+    RESET = 7
     STATUS_CHOICES = (
         (DELETED, 'deleted'),
         (NEW, 'new'),
+        (REGISTERING, 'registering'),
         (REGISTERED, 'registered'),
         (FAILED, 'failed'),
-        (REGISTERING, 'registering'),
+        (VERIFY, 'verify'),
+        (VERIFIED, 'verified'),
+        (RESET, 'reset'),
     )
 
     status = models.PositiveIntegerField(_('user type'),choices=STATUS_CHOICES,default=NEW)

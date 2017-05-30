@@ -52,6 +52,8 @@ urlpatterns = [
     # confusing 404.
     url(r'^confirm/(?P<confirmation_key>\w+)/$', views.EMailConfirmationView.as_view(),
          name='email_confirmation'),
+    url(r'^verify/(?P<verification_key>\w+)/$', views.verification_view,
+         name='account_verification'),
 
     url(r'', include('django.contrib.auth.urls')),
 ]

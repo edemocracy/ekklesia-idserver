@@ -3,7 +3,7 @@
 #
 # Member database
 #
-# Copyright (C) 2013-2015 by Thomas T. <ekklesia@heterarchy.net>
+# Copyright (C) 2013-2017 by Thomas T. <ekklesia@heterarchy.net>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -42,25 +42,26 @@ In general the status may only be changed when the other side has acknowledged/m
  creates: code,new,unsent,lastchange
  set status to deleted if the email is empty and member not registered
 4. sync invitations:
-4.1. download uuid,status for registered/failed,
- and registering=new/new if not onlychanged
+4.1. download uuid,status for status=registered/failed/reset,
+ additionally registering=new/new if not onlychanged
 4.2. upload uuid,status,code
  if not quick: upload all new
  if uuid is unknown, upload status=deleted
  if download=new:
    status=new->upload/unsent - ready for sending
    invitation is not uploaded
- if download=failed/registered:
+ if download=failed/registered/reset:
    if status=uploaded->newstatus/unsent
    if status=newstatus: do nothing
    upload new status
- reset all failed/sent invitations -> new
+ reset all failed/reset + sent invitations -> new
+ reset is like failed, but no warning is sent to user
 4.3. on idserver
  if status=new: create new invitation or update
  else: delete invitation
 4.4. usually repeat download and update status (new->uploaded)
 5. send invitations (for uploaded and unsent/retry) -> status=sent
- send registration/failure notification to registered/failed -> sent
+ send registration/failure notification to registered/failed/reset -> sent
 6. user registers with invitation/new (and secret if 2factor)
  invitation->registering, status->newmember
 7. send email confirmation
@@ -84,7 +85,7 @@ In general the status may only be changed when the other side has acknowledged/m
   member/eligibile->newstatus, inv=registered and activate login
  deps: id,name,parent,depth - delete non-mentioned deps with id
  if activate was wrong->inv=failed,delete member
- send notify for failed/registered status -> push invitations (4./5.)
+ send notify for failed/registered/reset status -> push invitations (4./5.)
 
 The fields in the database and used in import/export/sync are:
 

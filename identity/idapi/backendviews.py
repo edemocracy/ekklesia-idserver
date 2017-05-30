@@ -242,15 +242,16 @@ def get_invitations(onlychanged=False,crypto=True):
         gpg, verify, decrypt, sign, encrypt = api_crypto('invitations')
         if crypto is True: crypto = gpg # not debug
     else: verify = decrypt = sign = encrypt = False
-    writer = DataTable(['uuid','status'],gpg=crypto,
+    writer = DataTable(['uuid','status','code'],gpg=crypto,
         dataformat='invitation',fileformat='json',version=[1,0])
     writer.open(mode='w',encrypt=encrypt,sign=sign)
     count = 0
     invs = Invitation.objects.exclude(status=Invitation.DELETED)
-    stati = {Invitation.REGISTERED:'registered',Invitation.FAILED:'failed'}
+    stati = {Invitation.REGISTERED:'registered',Invitation.FAILED:'failed',
+        Invitation.VERIFIED:'verified',Invitation.RESET:'reset'}
     if not onlychanged:
-        stati.update({Invitation.REGISTERING:'new',Invitation.NEW:'new'})
-    for inv in invs.values('uuid','status'):
+        stati.update({Invitation.REGISTERING:'new',Invitation.NEW:'new',Invitation.VERIFY:'verify'})
+    for inv in invs.values('uuid','status','code'):
         try: inv['status'] = stati[inv['status']]
         except KeyError: continue # ignore status
         writer.write(inv)
@@ -272,7 +273,8 @@ def update_invitations(invitations,crypto=True):
     newinvs = set() # check duplicate
     data = []
     stati = {'new':Invitation.NEW,'deleted':Invitation.DELETED,
-        'failed':Invitation.FAILED,'registered':Invitation.REGISTERED}
+        'failed':Invitation.FAILED,'registered':Invitation.REGISTERED,
+        'verify':Invitation.VERIFY,'verified':Invitation.VERIFIED}
     for inv in reader:
         uuid = inv['uuid']
         if uuid in newinvs: raise KeyError
@@ -284,9 +286,10 @@ def update_invitations(invitations,crypto=True):
         uuid = inv['uuid']
         try: obj = Invitation.objects.get(uuid=uuid)
         except Invitation.DoesNotExist:
-            if inv['status']==Invitation.NEW: Invitation.objects.create(**inv)
+            if inv['status'] in (Invitation.NEW,Invitation.VERIFY):
+                Invitation.objects.create(**inv)
             continue
-        if inv['status'] != Invitation.NEW:
+        if inv['status'] not in (Invitation.NEW,Invitation.VERIFY):
             obj.delete()
             continue
         for k,v in six.iteritems(inv): setattr(obj,k,v)

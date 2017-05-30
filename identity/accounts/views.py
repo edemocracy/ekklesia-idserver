@@ -596,3 +596,25 @@ only valid for %s days.""") % humanize.apnumber(settings.EMAIL_CONFIRMATION_DAYS
 
     def confirm(self, confirmation_key):
         return models.EMailConfirmation.objects.confirm(confirmation_key)
+
+@login_required
+def verification_view(request, extra_context=None):
+    user = request.user
+    from accounts.models import Invitation
+    try:
+        invitation = Invitation.objects.get(uuid=user.uuid,code=verification_key,status=Invitation.VERIFY)
+        invitation.status = Invitation.VERIFIED
+        invitation.save()
+        context = dict(
+            title= _("Account verified"),
+            message= _('Your account has been successfully verified.')
+            )
+    except Invitation.DoesNotExist:
+        context = dict(
+            title= _("Account verification failed"),
+            message= _("""
+Sorry, it didn't work. Either your verification link was incorrect, or you account is already verified or
+the verification code for your account is no longer valid.""")
+            )
+    if extra_context is not None: context.update(extra_context)
+    return TemplateResponse(request, message_template, context)

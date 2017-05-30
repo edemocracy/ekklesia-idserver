@@ -38,21 +38,21 @@ uid08,inv8@localhost
 """
 
 invitations = """invitation,1.0
-uuid,email,code,status,sent
-uid01,bar@localhost,inv1,registered,sent
-uid05,inv5@localhost,inv5,failed,sent
-uid06,inv6@localhost,inv6,uploaded,sent
-uid07,inv7@localhost,inv7,uploaded,unsent
-uid08,inv8@localhost,inv8,new,unsent
+uuid,email,code,status,sent,encrypted
+uid01,bar@localhost,inv1,registered,sent,False
+uid05,inv5@localhost,inv5,failed,sent,False
+uid06,inv6@localhost,inv6,uploaded,sent,False
+uid07,inv7@localhost,inv7,uploaded,unsent,False
+uid08,inv8@localhost,inv8,new,unsent,False
 """
 
 minvitations = """invitation,1.0
-uuid,code,status,sent
-uid01,inv1,registered,sent
-uid05,inv5,failed,sent
-uid06,inv6,uploaded,sent
-uid07,inv7,uploaded,unsent
-uid08,inv8,new,unsent
+uuid,code,status,sent,encrypted
+uid01,inv1,registered,sent,False
+uid05,inv5,failed,sent,False
+uid06,inv6,uploaded,sent,False
+uid07,inv7,uploaded,unsent,False
+uid08,inv8,new,unsent,False
 """
 
 def gen_members(db):
@@ -107,9 +107,9 @@ def setup_db(dbtype=InvitationDatabase,engine=None,import_extra=[],reflect=True,
     global current_db
     if current_db: current_db.drop_db()
     if dbtype==MemberInvDatabase:
-        invite_import=['id','member_id','code','status','sent','senttime','lastchange']
+        invite_import=['id','member_id','code','status','sent','encrypted','senttime','lastchange']
     else:
-        invite_import=['uuid','email','code','status','sent','senttime','lastchange']
+        invite_import=['uuid','email','code','status','sent','encrypted','senttime','lastchange']
     config = dict(invite_import=invite_import+import_extra,database=engine,io_key=receiver)
     db = dbtype().configure(config=config,gpgconfig=dict(sender=sender),**configs)
     db.set_logger('invitation','warning')
@@ -296,12 +296,12 @@ def test_import_mail(empty_db):
     assert inv6.status==IStatusType.deleted
     assert inv7.status==IStatusType.new and inv7.sent==ISentStatusType.unsent
 
-inv_mailreset = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid','email','code','status','sent','senttime','lastchange'],
+inv_mailreset = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid','email','code','status','sent','encrypted','senttime','lastchange'],
         'data': [
-            ['uid01', receiver, 'inv1', 'new', 'unsent', None, None],
-            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent', None, None],
-            ['uid05', 'inv5@localhost', 'inv5', 'uploaded', 'sent', None, None],
-            ['uid06', 'inv6@localhost', 'inv6', 'uploaded', 'sent', None, None],
+            ['uid01', receiver, 'inv1', 'new', 'unsent', False, None, None],
+            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent', False, None, None],
+            ['uid05', 'inv5@localhost', 'inv5', 'uploaded', 'sent', False, None, None],
+            ['uid06', 'inv6@localhost', 'inv6', 'uploaded', 'sent', False, None, None],
         ]}
 
 inv_mailupd = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid','email'],
@@ -402,33 +402,33 @@ new,registered -> error
 some_time = '2015-01-01T12:00:00'
 
 inv_pre = {'format': 'invitation', 'version': [1, 0],
-        'fields': ['uuid','email','code','status','sent','senttime','lastchange'],
+        'fields': ['uuid','email','code','status','sent','encrypted','senttime','lastchange'],
         'data': [
-            ['uid01', receiver, 'inv1', 'new', 'unsent', None, None],
-            ['uid02', 'inv2@localhost', 'inv2', 'new', 'unsent', None, None],
-            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent', None, None],
-            ['uid05', 'inv5@localhost', 'inv5', 'uploaded', 'retry', some_time, None],
-            ['uid06', 'inv6@localhost', 'inv6', 'uploaded', 'sent', some_time, None],
-            ['uid07', 'inv7@localhost', 'inv7', 'registered', 'unsent', None, None],
-            ['uid08', 'inv8@localhost', 'inv8', 'failed', 'unsent', None, None],
-            ['uid09', 'inv9@localhost', 'inv9', 'failed', 'sent', some_time, None],
-            ['uid10', 'inv10@localhost', 'inv10', 'new', 'unsent', None, None],
-            ['uid11', 'inv11@localhost', 'inv11', 'new', 'unsent', None, None],
+            ['uid01', receiver, 'inv1', 'new', 'unsent', False, None, None],
+            ['uid02', 'inv2@localhost', 'inv2', 'new', 'unsent', False, None, None],
+            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent', False, None, None],
+            ['uid05', 'inv5@localhost', 'inv5', 'uploaded', 'retry', False, some_time, None],
+            ['uid06', 'inv6@localhost', 'inv6', 'uploaded', 'sent', False, some_time, None],
+            ['uid07', 'inv7@localhost', 'inv7', 'registered', 'unsent', False, None, None],
+            ['uid08', 'inv8@localhost', 'inv8', 'failed', 'unsent', False, None, None],
+            ['uid09', 'inv9@localhost', 'inv9', 'failed', 'sent', False, some_time, None],
+            ['uid10', 'inv10@localhost', 'inv10', 'new', 'unsent', False, None, None],
+            ['uid11', 'inv11@localhost', 'inv11', 'new', 'unsent', False, None, None],
         ]}
 
-inv_down = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid', 'status'],
+inv_down = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid', 'code', 'status'],
         'data': [
-            ['uid01', 'new'],
+            ['uid01', 'inv1', 'new'],
 
-            ['uid03', 'new'],
+            ['uid03', 'inv3', 'new'],
 
-            ['uid05', 'registered'],
-            ['uid06', 'failed'],
-            ['uid07', 'registered'],
-            ['uid08', 'failed'],
+            ['uid05', 'inv5', 'registered'],
+            ['uid06', 'inv6', 'failed'],
+            ['uid07', 'inv7', 'registered'],
+            ['uid08', 'inv8', 'failed'],
 
-            ['uid10', 'failed'],
-            ['uid11', 'registered'],
+            ['uid10', 'inv10', 'failed'],
+            ['uid11', 'inv11', 'registered'],
         ]}
 
 inv_up = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid', 'code','status'],
@@ -444,19 +444,19 @@ inv_up = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid', 'code','
             ['uid11', 'inv11', 'new'],
         ]}
 
-inv_post = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid','email','code','status','sent'],
+inv_post = {'format': 'invitation', 'version': [1, 0], 'fields': ['uuid','email','code','status','sent','encrypted'],
         'data': [
-            ['uid01', receiver, 'inv1', 'uploaded', 'unsent'],
-            ['uid02', 'inv2@localhost', 'inv2', 'new', 'unsent'],
+            ['uid01', receiver, 'inv1', 'uploaded', 'unsent', False],
+            ['uid02', 'inv2@localhost', 'inv2', 'new', 'unsent', False],
 
-            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent'],
-            ['uid05', 'inv5@localhost', 'inv5', 'registered', 'unsent'],
-            ['uid06', 'inv6@localhost', 'inv6', 'failed', 'unsent'],
-            ['uid07', 'inv7@localhost', 'inv7', 'registered', 'unsent'],
-            ['uid08', 'inv8@localhost', 'inv8', 'failed', 'unsent'],
-            ['uid09', 'inv9@localhost', 'inv9', 'new', 'unsent'],
-            ['uid10', 'inv10@localhost', 'inv10', 'new', 'unsent'],
-            ['uid11', 'inv11@localhost', 'inv11', 'new', 'unsent'],
+            ['uid04', 'inv4@localhost', 'inv4', 'uploaded', 'unsent', False],
+            ['uid05', 'inv5@localhost', 'inv5', 'registered', 'unsent', False],
+            ['uid06', 'inv6@localhost', 'inv6', 'failed', 'unsent', False],
+            ['uid07', 'inv7@localhost', 'inv7', 'registered', 'unsent', False],
+            ['uid08', 'inv8@localhost', 'inv8', 'failed', 'unsent', False],
+            ['uid09', 'inv9@localhost', 'inv9', 'new', 'unsent', False],
+            ['uid10', 'inv10@localhost', 'inv10', 'new', 'unsent', False],
+            ['uid11', 'inv11@localhost', 'inv11', 'new', 'unsent', False],
         ]}
 
 def test_export_json(empty_db):

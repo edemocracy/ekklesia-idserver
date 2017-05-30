@@ -134,16 +134,16 @@ def test_invitation(request,accounts,bilateral,invitations,client):
     assert response.status_code == 200
     invitations, encrypted, signed, result = json_decrypt(invitations,bilateral['id2'])
     assert encrypted and signed
-    assert invitations == dict(fields=['uuid','status'], version=[1, 0], format='invitation',
-         data=[['uid1','registered'],['uid5','failed']])
+    assert invitations == dict(fields=['uuid','status','code'], version=[1, 0], format='invitation',
+         data=[['uid1','registered','inv1'],['uid5','failed','inv5']])
 
     response, invitations = api(client,'backend/invitations/',user='invitations')
     assert response.status_code == 200
     #invitations = get_invitations(crypto=bilateral['id1'])
     invitations, encrypted, signed, result = json_decrypt(invitations,bilateral['id2'])
     assert encrypted and signed
-    assert invitations == dict(fields=['uuid','status'], version=[1, 0], format='invitation',
-         data=[['uid1','registered'],['uid4','new'],['uid5','failed']])
+    assert invitations == dict(fields=['uuid','status','code'], version=[1, 0], format='invitation',
+         data=[['uid1','registered','inv1'],['uid4','new','inv4'],['uid5','failed','inv5']])
 
     invitations = dict(fields=['uuid','status','code'], version=[1, 0], format='invitation',
          data=[['uid1','registered',''],['uid4','new','inv4b'],
@@ -154,5 +154,5 @@ def test_invitation(request,accounts,bilateral,invitations,client):
     assert response.status_code == 200
 
     invitations = get_invitations(crypto=False)
-    assert invitations == dict(fields=['uuid','status'], version=[1, 0], format='invitation',
-        data=[['uid4', 'new'], ['uid5', 'new'], ['uid6', 'new']])
+    assert invitations == dict(fields=['uuid','status','code'], version=[1, 0], format='invitation',
+        data=[['uid4', 'new','inv4b'], ['uid5', 'new','inv5b'], ['uid6', 'new','inv6']])
