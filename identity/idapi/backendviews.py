@@ -111,13 +111,13 @@ def update_members(members,departments,crypto=True):
             #print parent,'missing'
             raise KeyError # parent missing
 
-    columns = ['uuid','status','verified','department']
     required = ['uuid','status']
+    coltypes = dict(uuid=str,status=str,verified=bool,departments=(int,))
     twofactor = settings.TWO_FACTOR_SIGNUP
     if twofactor:
-        columns.append('activate')
+        coltypes['activate'] = str
         required.append('activate')
-    reader = DataTable(columns, required=required,gpg=crypto,
+    reader = DataTable(coltypes=coltypes, required=required,gpg=crypto,
         dataformat='member',fileformat='json',version=[1,0])
     reader.open(members,'r',encrypt=decrypt,sign=verify)
     newmembers = set() # check duplicate
@@ -130,13 +130,12 @@ def update_members(members,departments,crypto=True):
         status = stati.get(member['status'])
         assert not status is None, "invalid status"
         member['status'] = status
-        if status == Account.DELETED:
-            member['is_active'] = False
+        member['is_active'] = status != Account.DELETED
         data.append(member)
 
     done = set()
     while len(deps):
-        todo = []
+        todo = [] # update from root to leaves
         for dep in deps:
             dep['level'] = dep.pop('depth')
             parent = dep.pop('parent')
@@ -160,16 +159,23 @@ def update_members(members,departments,crypto=True):
                 setattr(obj,k,v)
                 changed = True
             if changed: obj.save()
-            cparent = obj.parent
-            if cparent != parent:
+            move = False
+            if obj.is_root():
+                move = parent
+            elif not parent: # child becomes root
+                obj.move(obj.get_root(),'last-sibling')
+            else:
+                move = obj.parent != parent
+            if move:
                 obj.move(parent,'last-child')
+            obj = NestedGroup.objects.get(pk=obj.pk)
         deps = todo
 
     reg_uuids, fail_uuids = [], []
     for member in data:
         uuid = member['uuid']
         try: obj = Account.objects.get(uuid=uuid)
-        except Account.DoesNotExist: continue
+        except: continue # Account.DoesNotExist
         try: 
             if obj.email_unconfirmed: continue # ignore unconfirmed email
         except AttributeError: pass
@@ -194,16 +200,15 @@ def update_members(members,departments,crypto=True):
             reg_uuids.append(uuid)
         if twofactor:
             del member['activate']
-        if 'department' in member:
-            dep = member['department']
-            del member['department']
-            if not dep:
-                obj.nested_groups = obj.nested_groups.filter(syncid=None)
-            elif not obj.nested_groups.filter(syncid=dep).exists(): # already in dep?
-                ngroups = obj.nested_groups.filter(syncid=None) | \
-                    NestedGroup.objects.filter(syncid=dep) # union existing ngroups + dep
-                obj.nested_groups = ngroups
         changed = False
+        if 'departments' in member:
+            deps = member['departments']
+            del member['departments']
+            # server-only groups are not changed by the sync
+            indep_groups = obj.nested_groups.filter(syncid=None)
+            # union existing ngroups + dep
+            obj.nested_groups = indep_groups | NestedGroup.objects.filter(syncid__in=deps)
+            changed = True
         for k,v in six.iteritems(member):
             if not changed and getattr(obj,k)==v: continue
             setattr(obj,k,v)

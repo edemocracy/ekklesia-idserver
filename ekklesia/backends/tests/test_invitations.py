@@ -61,7 +61,7 @@ def gen_members(db):
     out = []
     for i in range(1,13):
         email = 'inv%i@localhost'%i if i>1 else receiver
-        member = db.Member(uuid='uid%02i'%i,email=email,department=dep)
+        member = db.Member(uuid='uid%02i'%i,email=email,departments=[dep])
         db.session.add(member)
         out.append(member)
     return out
@@ -271,7 +271,7 @@ unknown,,empty,new,unsent
 """
 
 members_mail = """member,1.0
-uuid,email,status,department
+uuid,email,status,departments
 uid01,bar@localhost,member,root
 uid06,inv6@localhost,deleted,root
 uid07,new@localhost,member,root

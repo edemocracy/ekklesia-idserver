@@ -46,8 +46,10 @@ def ngroups(db):
     sub = root.add_child(syncid=2,name='sub',level=2)
     subsub = sub.add_child(syncid=3,name='subsub',level=4)
     sub2 = root.add_child(syncid=4,name='sub2',level=2)
+    root2 = NestedGroup.add_root(syncid=5,name='root2',level=1,description='root2')
+    r2sub = root2.add_child(syncid=6,name='r2sub',level=2)
     indep = NestedGroup.add_root(syncid=None,name='indep',level=1)
-    return dict(root=root,sub=sub,subsub=subsub,sub2=sub2,indep=indep)
+    return dict(root=root,sub=sub,subsub=subsub,sub2=sub2,root2=root2,r2sub=r2sub,indep=indep)
 
 def create_user(username,password=None,cls=None,nested_groups=[],**kwargs):
     from accounts.models import Account

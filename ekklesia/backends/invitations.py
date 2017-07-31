@@ -187,7 +187,7 @@ class InvitationDatabase(AbstractDatabase):
             if not reflect:
                 __tablename__ = self.invite_table
                 if self.member_class:
-                    id = Column(Integer, Sequence('id_seq',optional=True), primary_key=True)
+                    id = Column(Integer, Sequence('invitation_seq',optional=True), primary_key=True)
                     member_id = Column(String(36),
                         ForeignKey(self.member_class.uuid,name='member_fk'), nullable=False)
                 else:

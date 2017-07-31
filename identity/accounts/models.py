@@ -75,7 +75,7 @@ class NestedGroup(MP_Node):
 
     @property
     def parent(self):
-        return self.get_parent()
+        return self.get_parent() if not self.is_root() else None
 
     def clean(self):
         parent = self.get_parent()

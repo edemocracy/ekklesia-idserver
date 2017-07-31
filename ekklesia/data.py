@@ -246,6 +246,7 @@ def encode_field(data,ftype,format='csv'):
     elif ftype==str:
         if not isinstance(data,six.string_types):
             return str(data)
+    if format=='csv': return str(data)
     return data
 
 class DataTable(object):
@@ -279,8 +280,10 @@ class DataTable(object):
     JSONdict: fields, data=[{key=value,...},...]
     """
 
-    def __init__(self,columns,coltypes=None,required=True,ignore=True,remap=None,gpg=None,
+    def __init__(self,columns=None,coltypes=None,required=True,ignore=True,remap=None,gpg=None,
         dataformat='data',fileformat='csv',version=(1,0),pretty=True,dialect=None):
+        assert columns or coltypes, 'columns or coltypes must be specified'
+        if columns is None: columns = list(coltypes.keys())
         self.columns = columns # supported columns
         assert not coltypes or isinstance(coltypes,dict), 'invalid coltypes'
         assert fileformat in ('csv','json','jsondict','json-file','jsondict-file'), 'invalid fileformat'
@@ -468,8 +471,15 @@ class DataTable(object):
                 if not field in self.read_columns[0]: continue
                 if self.fileformat in ('jsondict','jsondict-file'): x = row[field]
                 else: x = row[i]
-                if self.coltypes and field in self.coltypes:
-                     x = decode_field(x,self.coltypes[field])
+                ftype = self.coltypes.get(field) if self.coltypes else None
+                if ftype is None: pass
+                elif type(ftype)==tuple: # list of same type
+                    if self.fileformat=='csv':
+                        x = x.split(';') if x else [] # list-separator
+                    else: assert type(x) in (tuple,list), "list expected for "+field
+                    x = [decode_field(y,ftype[0]) for y in x]
+                else:
+                    x = decode_field(x,ftype)
                 ofield = self.remap.get(field,field)
                 data[ofield] = x
             yield data
@@ -490,8 +500,17 @@ class DataTable(object):
                 if ofield in extra: x = extra[ofield]
                 elif hasattr(data,ofield): x = getattr(data,ofield)
                 else: assert self.ignore or not field in self.required, "field '%s' missing"
-            if self.coltypes and field in self.coltypes:
-                x = encode_field(x,self.coltypes[field],self.fileformat)
+            ftype = self.coltypes.get(field) if self.coltypes else None
+            if ftype is None: pass
+            elif type(ftype)==tuple: # list of same type
+                print (ftype, x,extra)
+                if x is None: x = []
+                else: assert type(x) in (tuple,list), "list expected for "+field
+                x = [encode_field(y,ftype[0],self.fileformat) for y in x]
+                if self.fileformat=='csv':
+                    x = ';'.join(x) # list-separator
+            else:
+                x = encode_field(x,ftype,self.fileformat)
             if self.fileformat in ('jsondict','jsondict-file'): row[field] = x
             else: row.append(x)
         if self.fileformat=='csv': self.csv.writerow(row)

@@ -53,9 +53,106 @@ def test_object():
 
 json_data = {'a':1,'b':3.14,'s':'foo\nbar','n':None,'b':True}
 class Obj:
-    def __init__(self,a=1,b=2,c=3): self.a,self.b,self.c=a,b,c
+    def __init__(self,a=1,b=2,c=[3]): self.a,self.b,self.c=a,b,c
 
-class TestData:
+class TestTable:
+    def table_io(self,fmt,obj=False,
+        missing=False,ignore=True,required=False,extra=False):
+        from ekklesia.data import objects_equal
+        columns = ('a','b','c')
+        coltypes = {'a':int,'b':int,'c':(int,)}
+        t = DataTable(columns,coltypes=coltypes,fileformat=fmt,ignore=ignore,required=required)
+        if fmt in ('json','jsondict'): f = {}
+        else: f = StringIO()
+        t.open(f,'w')
+        if obj:
+            t.write(Obj(a=0))
+            t.write(Obj(a=1))
+        elif missing:
+            try:
+                t.write({'a':0,'b':2})
+                assert ignore
+            except:
+                assert not ignore
+                return
+        elif extra:
+            try:
+                t.write({'a':0,'b':2,'c':[3,4],'d':4})
+                assert ignore
+            except:
+                assert not ignore
+                return
+        else:
+            for i in range(3): t.write({'a':i,'b':2,'c':[3,4]})
+        if fmt in ('json','jsondict'):
+            f2 = t.close()
+            assert f is f2
+        else:
+            t.close()
+            f.seek(0)
+        t = DataTable(columns,coltypes=coltypes,fileformat=fmt)
+        t.open(f,'r')
+        i = 0
+        for row in t:
+            if obj:
+                assert objects_equal(Obj(**row),Obj(a=i))
+            else:
+                if missing: assert row == {'a':0,'b':2,'c':[]}
+                else: assert row == {'a':i,'b':2,'c':[3,4]}
+            i+=1
+        t.close()
+
+    def test_table_json_plain(self):
+        self.table_io('json')
+    def test_table_jsondict_plain(self):
+        self.table_io('jsondict')
+    def test_table_jsonf_plain(self):
+        self.table_io('json-file')
+    def test_table_jsondictf_plain(self):
+        self.table_io('jsondict-file')
+    def test_table_csv_plain(self):
+        self.table_io('csv')
+
+    def test_table_bad_init(self):
+        with raises(AssertionError): t = DataTable(('a',),fileformat='bad')
+
+    def test_table_bad_open(self):
+        t = DataTable(('a',))
+        with raises(AssertionError): t.open(StringIO(),'x')
+
+    def test_table_bad_read(self):
+        t = DataTable(('a',))
+        t.open(StringIO(),'w')
+        with raises(AssertionError):
+            for row in t: pass
+
+    def test_table_bad_write(self):
+        t, f = DataTable(('a',)), StringIO()
+        t.open(f,'w')
+        t.write({'a':0})
+        t.close()
+        f.seek(0)
+        t = DataTable(('a',))
+        t.open(f,'r')
+        with raises(AssertionError): t.write({'a':1})
+
+    def test_table_miss(self):
+        self.table_io('csv',missing=True,ignore=True,required=False)
+    def test_table_miss_ign(self):
+        self.table_io('csv',missing=True,ignore=False,required=False)
+    def test_table_miss_req(self):
+        self.table_io('csv',missing=True,ignore=False,required=True)
+    def test_table_extra(self):
+        self.table_io('csv',extra=True,ignore=False)
+    def test_table_extra_ign(self):
+        self.table_io('csv',extra=True,ignore=True)
+
+    def test_table_obj(self):
+        self.table_io('json-file',obj=True)
+    def test_table_obj_dict(self):
+        self.table_io('jsondict-file',obj=True)
+
+class TestCrypto:
     def json(self,ids,encrypt,sign):
         plain = not encrypt and not sign
         c, result = json_encrypt(json_data,ids['id1'],[receiver] if encrypt else False,sign)
@@ -104,34 +201,15 @@ class TestData:
         d, encrypted, signed, result = json_decrypt(c,gpgreceiver)
         assert (d, encrypted, signed, result.valid) == (None, True, True, False)
 
-    def table_io(self,ids,fmt,encrypt=False,sign=False,obj=False,
-        missing=False,ignore=True,required=False,extra=False):
+    def table_io(self,ids,fmt,encrypt=False,sign=False):
         from ekklesia.data import objects_equal
         columns = ('a','b','c')
         coltypes = {'a':int,'b':int,'c':int}
-        t = DataTable(columns,coltypes=coltypes,gpg=ids['id1'],fileformat=fmt,ignore=ignore,required=required)
+        t = DataTable(columns,coltypes=coltypes,gpg=ids['id1'],fileformat=fmt,required=False)
         if fmt in ('json','jsondict'): f = {}
         else: f = StringIO()
         t.open(f,'w',[receiver] if encrypt else False,sign)
-        if obj:
-            t.write(Obj(a=0))
-            t.write(Obj(a=1))
-        elif missing:
-            try:
-                t.write({'a':0,'b':2})
-                assert ignore
-            except:
-                assert not ignore
-                return
-        elif extra:
-            try:
-                t.write({'a':0,'b':2,'c':3,'d':4})
-                assert ignore
-            except:
-                assert not ignore
-                return
-        else:
-            for i in range(3): t.write({'a':i,'b':2,'c':3})
+        for i in range(3): t.write({'a':i,'b':2,'c':3})
         if fmt in ('json','jsondict'):
             f2 = t.close()
             assert f is f2
@@ -142,70 +220,17 @@ class TestData:
         t.open(f,'r',encrypt,sender if sign else False)
         i = 0
         for row in t:
-            if obj:
-                assert objects_equal(Obj(**row),Obj(a=i))
-            else:
-                if missing: assert row == {'a':0,'b':2,'c':None}
-                else: assert row == {'a':i,'b':2,'c':3}
+            assert row == {'a':i,'b':2,'c':3}
             i+=1
         t.close()
 
-    def test_table_json_plain(self,bilateral):
-        self.table_io(bilateral,'json',encrypt=False,sign=False)
-    def test_table_jsondict_plain(self,bilateral):
-        self.table_io(bilateral,'jsondict',encrypt=False,sign=False)
     def test_table_json(self,bilateral):
         self.table_io(bilateral,'json',encrypt=True,sign=True)
-    def test_table_jsonf_plain(self,bilateral):
-        self.table_io(bilateral,'json-file',encrypt=False,sign=False)
-    def test_table_jsondictf_plain(self,bilateral):
-        self.table_io(bilateral,'jsondict-file',encrypt=False,sign=False)
     def test_table_jsonf(self,bilateral):
         self.table_io(bilateral,'json-file',encrypt=True,sign=True)
-    def test_table_csv_plain(self,bilateral):
-        self.table_io(bilateral,'csv',encrypt=False,sign=False)
     def test_table_csv_sign(self,bilateral):
         self.table_io(bilateral,'csv',encrypt=False,sign=True)
     def test_table_csv(self,bilateral):
         self.table_io(bilateral,'csv',encrypt=True,sign=True)
-
-    def test_table_bad_init(self,bilateral):
-        with raises(AssertionError): t = DataTable(('a',),fileformat='bad')
-
-    def test_table_bad_open(self,bilateral):
-        t = DataTable(('a',))
-        with raises(AssertionError): t.open(StringIO(),'x')
-
-    def test_table_bad_read(self,bilateral):
-        t = DataTable(('a',))
-        t.open(StringIO(),'w')
-        with raises(AssertionError):
-            for row in t: pass
-
-    def test_table_bad_write(self,bilateral):
-        t, f = DataTable(('a',)), StringIO()
-        t.open(f,'w')
-        t.write({'a':0})
-        t.close()
-        f.seek(0)
-        t = DataTable(('a',))
-        t.open(f,'r')
-        with raises(AssertionError): t.write({'a':1})
-
-    def test_table_obj(self,bilateral):
-        self.table_io(bilateral,'json-file',obj=True)
-    def test_table_obj_dict(self,bilateral):
-        self.table_io(bilateral,'jsondict-file',obj=True)
-
-    def test_table_miss(self,bilateral):
-        self.table_io(bilateral,'csv',missing=True,ignore=True,required=False)
-    def test_table_miss_ign(self,bilateral):
-        self.table_io(bilateral,'csv',missing=True,ignore=False,required=False)
-    def test_table_miss_req(self,bilateral):
-        self.table_io(bilateral,'csv',missing=True,ignore=False,required=True)
-    def test_table_extra(self,bilateral):
-        self.table_io(bilateral,'csv',extra=True,ignore=False)
-    def test_table_extra_ign(self,bilateral):
-        self.table_io(bilateral,'csv',extra=True,ignore=True)
 
     #TODO: read string, bad version/format

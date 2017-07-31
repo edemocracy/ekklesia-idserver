@@ -91,12 +91,12 @@ The fields in the database and used in import/export/sync are:
 
 field (format: member 1.0):
 uuid    - unique member id (UUID max.36) as reference
-memberno - unique member no (optional)
+memberno - unique member no (only if field is activated)
 email   - email address
 status  - member status: deleted, member, eligible
 optional fields:
 registered - UTC datetime when check_member was positiv for the first time
-department - department id
+departments - department ids
 parent  - parent department id (if department_spec is implicit)
 verified - whether member is verified
 location  - location of member
@@ -129,17 +129,22 @@ members_spec="""
 [members]
 # the table name for members
 member_table = string(default='members')
-# columns to import from the table
-member_import = string_list(default=list('uuid','email','status','registered','department'))
-# optional: registered,verified,memberno,birthday,location
+# columns to import from the table, optional: registered,verified,birthday,location
+member_import = string_list(default=list('id','uuid','email','status','registered','departments'))
+# whether import/export id as unique member_no
+member_no = boolean(default=False)
 # columns to sync, if empty member_sync = member_import
-member_sync = string_list(default=list('uuid','status','verified','department'))
+member_sync = string_list(default=list('uuid','status','verified','departments'))
 # type of department field: number/name, implicit:reconstruct hierarchy from extra parent name
 department_spec = option('implicit','number','name',default='name')
 # the table name for departments
 department_table = string(default='departments')
 # columns to import from the table
 department_import = string_list(default=list('id','parent','name','depth'))
+# the table name for department member associations
+depmembers_table = string(default='depmembers')
+# columns to import from the table
+depmembers_import = string_list(default=list('department_id','member_id'))
 # field name for check_member, if empty disabled
 check_member = string
 # field name for check_member, if empty disabled
@@ -263,20 +268,20 @@ class MemberDatabase(AbstractDatabase):
         "set the location field of a member"
         member.location = location
 
-    def get_department(self,member):
-        "get the department field of a member"
+    def get_departments(self,member):
+        "get the departments field of a member"
         if not self.department_table: return
-        return member.department
+        return member.departments
 
-    def set_department(self,member,department):
+    def set_departments(self,member,departments):
         "set the department field of a member"
         if not self.department_table: return
-        member.department = department
+        member.departments = departments
 
     def check_member_func(self,member,check):
         "default check function: compare with memberno"
-        assert 'memberno' in self.member_import, "memberno not supported"
-        return member.memberno == int(check)
+        assert self.member_no, "memberno not supported"
+        return member.id == int(check)
 
     def declare(self,reflect=True):
         from sqlalchemy import (Table, Column, Sequence, Enum, Integer, String,
@@ -294,17 +299,18 @@ class MemberDatabase(AbstractDatabase):
         class Department(self.Base):
             if not reflect:
                 __tablename__ = self.department_table
-                id = Column(Integer, Sequence('id_seq',optional=True), primary_key=True)
+                id = Column(Integer, Sequence('department_seq',optional=True), primary_key=True)
                 #depno = Column(Integer, Sequence('depno_seq',optional=True), unique=True,index=True)
                 parent_id = Column(Integer, ForeignKey(depid), nullable=True)
                 name = Column(String(128))
                 depth = Column(Integer, nullable=True,default=defdepth)
             else: # pragma: no cover
-                __table__ = Table(self.department_table, self.Base.metadata, autoload=True)
+                __table__ = Table(self.department_table, self.Base.metadata, autoload=True,
+                     extend_existing=True)
                 if 'departments' in self.column_map:
                     __mapper_args__ = {'include_properties' : list(self.column_map['departments'].keys()) }
             children = relationship("Department",backref=backref('parent',remote_side="Department.id"))
-            members = relationship("Member",backref=backref('department',remote_side="Department.id") )
+            members = relationship(lambda: Member, secondary=self.depmembers_table, back_populates='departments', lazy="dynamic")
             # need trigger for: CheckConstraint('depth > parent.depth', name='depthcheck')
 
             def __init__(obj, **kwargs):
@@ -320,17 +326,15 @@ class MemberDatabase(AbstractDatabase):
         class Member(self.Base):
             if not reflect:
                 __tablename__ = self.member_table
-                uuid = Column(String(36), index=True, primary_key=True)
+                id = Column(Integer, Sequence('member_seq',optional=True), primary_key=True) # =memberno if active
+                uuid = Column(String(36), index=True, unique=True, nullable=False)
                 email = Column(String(254), nullable=True, unique=True)
                 status = Column(MStatusType.db_type(), nullable=False, default=MStatusType.member)
-                department_id = Column(Integer, ForeignKey(depid), nullable=False)
                 if 'registered' in self.member_import:
                     registered = Column(DateTime, nullable=True)
                 if 'verified' in self.member_import:
                     # null=unknown?->don't overwrite with sync
                     verified = Column(Boolean, nullable=True)
-                if 'memberno' in self.member_import:
-                    memberno = Column(Integer, unique=True, nullable=True)
                 if 'birthday' in self.member_import:
                     birthday = Column(Date, nullable=True)
                 if 'location' in self.member_import:
@@ -338,9 +342,10 @@ class MemberDatabase(AbstractDatabase):
             else: # pragma: no cover
                 __table__ = Table(self.member_table, self.Base.metadata,
                     Column('status',MStatusType.db_type(), nullable=False, default=MStatusType.member),
-                    autoload=True)
+                    autoload=True, extend_existing=True)
                 if 'members' in self.column_map:
                     __mapper_args__ = {'include_properties' : list(self.column_map['members'].keys()) }
+            departments = relationship(lambda: Department, secondary=self.depmembers_table, back_populates='members')
 
             def __init__(member, status=MStatusType.member, **kwargs):
                 super(self.Base,member).__init__()
@@ -351,9 +356,9 @@ class MemberDatabase(AbstractDatabase):
                 if 'location' in self.member_import and 'location' in kwargs:
                     self.set_location(member,kwargs['location'])
                     del kwargs['location']
-                if not self.department_table and 'department' in kwargs:
-                    self.set_department(member,kwargs['department'])
-                    del kwargs['department']
+                if not self.department_table and 'departments' in kwargs:
+                    self.set_departments(member,kwargs['departments'])
+                    del kwargs['departments']
                 if 'uuid' in kwargs:
                     from uuid import uuid4
                     value = kwargs['uuid']
@@ -365,12 +370,26 @@ class MemberDatabase(AbstractDatabase):
                 replace={}
                 if 'location' in self.member_import:
                     replace['location'] = self.get_location(member)
-                if not self.department_table and 'department' in self.member_columns:
-                    replace['department'] = self.get_department(member)
+                if not self.department_table and 'departments' in self.member_columns:
+                    replace['departments'] = self.get_departments(member)
                 return repr_object(member,self.member_columns,replace)
+
+        class DepartmentMember(self.Base):
+            if not reflect:
+                __tablename__ = self.depmembers_table
+                department_id = Column(Integer, ForeignKey(depid), primary_key=True)
+                member_id = Column(Integer, ForeignKey(self.member_table+'.id'), primary_key=True)
+            else: # pragma: no cover
+                __table__ = Table(self.depmembers_table, self.Base.metadata, autoload=True,
+                    extend_existing=True)
+                if 'depmembers' in self.column_map:
+                    __mapper_args__ = {'include_properties' : list(self.column_map['depmembers'].keys()) }
+            department = relationship("Department", backref=backref("depmembers", cascade="all, delete-orphan"))
+            member = relationship("Member", backref=backref("depmembers", cascade="all, delete-orphan"))
 
         self.Department = Department
         self.Member = Member
+        self.DepartmentMember = DepartmentMember
 
     def reflect_classes(self):
         from ekklesia.backends import reflect_class
@@ -379,7 +398,7 @@ class MemberDatabase(AbstractDatabase):
         self.member_columns, member_types = reflect_class(self.Member)
         self.department_columns, department_types = reflect_class(self.Department)
         deptype = int if self.department_spec == 'number' else six.text_type
-        member_types['department'] = deptype
+        member_types['departments'] = (deptype,)
         department_types['parent'] = deptype
         self.member_types = frozendict(member_types)
         self.department_types = frozendict(department_types)
@@ -459,10 +478,12 @@ class MemberDatabase(AbstractDatabase):
             dquery.update(dict(depth=None)) # reset all depths
 
         Member = self.Member
-        columns = list(self.member_columns)+['department']
+        columns = list(self.member_columns)+['departments']
         if allfields: reqcolumns = columns
-        else: reqcolumns = ['uuid','email']
-        if not import_dep and 'department' in self.member_import and not 'parent' in columns:
+        else:
+            reqcolumns = ['uuid','email']
+            if self.member_no: reqcolumns.append('id')
+        if not import_dep and 'departments' in self.member_import and not 'parent' in columns:
             # implicit requires parent
             columns.append('parent')
             reqcolumns.append('parent')
@@ -474,8 +495,8 @@ class MemberDatabase(AbstractDatabase):
         #primary either memberid or uuid
         #primary must exist for every member and be unique
         #primary+email must be unique
-        if 'memberno' in columns:
-            primary, primarykey = 'memberno', Member.memberno
+        if self.member_no:
+            primary, primarykey = 'id', Member.id
         else:
             primary, primarykey = 'uuid', Member.uuid
         mquery = session.query(Member)
@@ -487,12 +508,18 @@ class MemberDatabase(AbstractDatabase):
                 continue
             assert not id in seen, "member %s is duplicate" % id
             seen.add(id)
-            if 'department' in data:
-                depid = data['department']
+            if 'departments' in data:
+                depids = data['departments']
                 if import_dep: # all departments must exist
-                    dep = get_department({depprimary:depid})
-                    assert dep, "unknown department %s" % depid
+                    deps=set()
+                    for depid in depids:
+                        dep = get_department({depprimary:depid})
+                        assert dep, "unknown department %s" % depid
+                        deps.add(dep)
+                    deps = list(deps)
                 else: # implicit departments
+                    assert len(depids)==1, "only single implicit department supported"
+                    depid = depids[0]
                     # create departments from department and parent
                     # find existing parent by id, if not exist, create fwd-ref
                     parent = data['parent']
@@ -515,11 +542,12 @@ class MemberDatabase(AbstractDatabase):
                         elif dep.parent != parent: # if parent changed and not seen, update
                             assert not depid in depseen, "department %s is duplicate" % depid
                             dep.update(parent=parent)
-                data['department'] = dep
+                    deps = [dep]
+                data['departments'] = deps
             if 'email' in columns and not data['email']:
                 data['email'] = None # make sure it's None
             # find existing member
-            member = mquery.filter_by(**{primary:id}).first()
+            member = mquery.filter(primarykey==id).first()
             if data['email'] and not (member and member.email==data['email']):
                 # email already used by other member?
                 if session.query(primarykey,Member.email).filter_by(email=data['email']).first():
@@ -556,7 +584,7 @@ class MemberDatabase(AbstractDatabase):
         if not dryrun: session.commit()
 
     def export_members(self,output,encrypt=None,sign=False,allfields=False,format='csv'):
-        """export data, sorted by primary (uuid, unless memberno exists), to output.
+        """export data, sorted by primary (uuid, or id with member_no), to output.
         allfields is used for backup and writes all columns.
         without allfields, data for the invitation DB is generated.
         output is [members,departments] if allfields, else just [members].
@@ -566,7 +594,8 @@ class MemberDatabase(AbstractDatabase):
         session = self.session
         Department, Member = self.Department, self.Member
         if allfields:
-            columns = list(self.member_columns)+['department']
+            columns = list(self.member_columns)+['departments']
+            if not self.member_no: columns.remove('id')
             dataformat = 'member'
         else:
             columns = ('uuid','email')
@@ -577,16 +606,19 @@ class MemberDatabase(AbstractDatabase):
         writer.open(output[0],'w',encrypt=encrypt,sign=sign)
         count = 0
         if allfields:
-            query = session.query(Member).order_by(Member.memberno if 'memberno' in columns else Member.uuid)
+            query = session.query(Member).order_by(Member.id if self.member_no else Member.uuid)
         else:
             query = session.query(Member.uuid,Member.email,Member.registered).order_by(Member.uuid)
             if 'registered' in self.member_import:
                 query = query.filter_by(registered=None) # don't export registered
         extra = {}
         for member in query.yield_per(1000):
-            if allfields and member.department: # FIXME: use get_department?
-                depid = member.department.id if self.department_spec=='number' else member.department.name
-                extra = dict(department=depid)
+            if allfields and member.departments: # FIXME: use get_department?
+                if self.department_spec=='number':
+                    depids = [department.id for department in member.departments]
+                else:
+                    depids = [department.name for department in member.departments]
+                extra = dict(departments=depids)
             writer.write(member,extra)
             count += 1
         writer.close()
@@ -643,7 +675,7 @@ class MemberDatabase(AbstractDatabase):
         wcoltypes = dict(coltypes)
         if check_member: wcoltypes[check_member] = bool
         if check_email: wcoltypes[check_email] = bool
-        wcoltypes['department'] = int # replace by ids
+        wcoltypes['departments'] = (int,) # replace by list of ids
         if 'location' in self.member_sync:
             wcoltypes['gpslat'] = wcoltypes['gpslng'] = float
             columns += ['gpslat','gpslng']
@@ -670,9 +702,13 @@ class MemberDatabase(AbstractDatabase):
             if 'location' in self.member_import:
                 gps = self.gps_coord(self.get_location(member))
                 if gps: extra['gpslat'],extra['gpslng'] = gps
-            dep = self.get_department(member)
-            if dep:
-                extra['department'] = dep.id #if self.department_spec=='number' else dep.name
+            deps = self.get_departments(member)
+            if self.department_spec=='number':
+                deps = [dep.id for dep in deps]
+            else:
+                deps = [dep.name for dep in deps]
+            if deps:
+                extra['departments'] = deps
             writer.write(member,extra)
             if not quick and self.export_emails: ewriter.write(member)
 
@@ -680,7 +716,6 @@ class MemberDatabase(AbstractDatabase):
 
         mquery = session.query(Member)
         count = 0
-        check_memberno = 'memberno' in self.member_columns
         if download:
             from datetime import datetime
             seen = set()
@@ -695,12 +730,13 @@ class MemberDatabase(AbstractDatabase):
                 seen.add(uuid)
                 member = mquery.filter_by(uuid=uuid).first()
                 extra = {}
-                if not member or (check_memberno and not member.memberno): # deleted
+                if not member or (self.member_no and member.status == MStatusType.deleted):
                     self.warn("member %s is unknown" % uuid)
                     if check_member in columns and data[check_member]:
                         extra[check_member] = False
                     if check_email in columns and data[check_email]:
                         extra[check_email] = False
+                    extra['departments'] = []
                     writer.write(Member(uuid=uuid,status=MStatusType.deleted),extra)
                     continue
                 if check_email in columns and data[check_email]:
@@ -724,7 +760,7 @@ class MemberDatabase(AbstractDatabase):
                 count += 1
         else:
             for member in mquery.yield_per(1000):
-                if check_memberno and not member.memberno: continue # deleted
+                if self.member_no and not member.memberno: continue # deleted
                 if not dryrun: export(member)
                 count += 1
         self.info('%i members exported', count)
@@ -738,7 +774,7 @@ class MemberDatabase(AbstractDatabase):
                 dataformat='member',fileformat=format,version=self.version)
             # extra encrypt,sign
             iwriter.open(invitations,'w',encrypt=encryptmail,sign=self.member_api.sign)
-            if check_memberno:
+            if self.member_no:
                 query = session.query(Member.uuid,Member.email,Member.memberno).\
                     filter(Member.email!=None,Member.memberno!=0)
             else:

@@ -35,6 +35,7 @@ def test_member(request,accounts,invitations,bilateral,client,variant,settings):
 
     twofactor = variant=='2fac'
     setattr(settings, 'TWO_FACTOR_SIGNUP',twofactor)
+    #setattr(settings, 'DEBUG',True)
 
     Invitation.objects.create(code='inv6',secret='password6',uuid='uid6',status=Invitation.REGISTERING)
     Invitation.objects.create(code='inv7',secret='password7',uuid='uid7',status=Invitation.REGISTERING)
@@ -66,15 +67,16 @@ def test_member(request,accounts,invitations,bilateral,client,variant,settings):
     assert members == dict(fields=['uuid']+activate, version=[1, 0], format='member',
          data=data if twofactor else [v[:-1] for v in data])
 
-    data = [['uid1','eligible',1,2,''],['uid2','member',1,5,''],['uid3','deleted',0,0,''],
-            ['uid6','member',1,0,True],['uid7','deleted',0,0,False]]
-    members = dict(fields=['uuid','status','verified','department']+activate,
+    # change data by upload
+    data = [['uid1','eligible',1,[2],''],['uid2','member',1,[3],''],['uid3','deleted',0,[],''],
+            ['uid6','member',1,[0],True],['uid7','deleted',0,[],False]]
+    members = dict(fields=['uuid','status','verified','departments']+activate,
          version=[1, 0], format='member',
     #    data=[['uid1',0,0,2],['uid2',1,1,3],['uid3',1,1,4]])
          data=data if twofactor else [v[:-1] for v in data])
     departments = dict(fields=('id','parent','name','depth'), version=[1, 0], format='department',
-    #    data=[[1,None,'root',1],[2,1,'sub',2],[3,2,'subsub',4],[4,1,'sub2',2]])
-         data=[[1,None,'r00t',1],[2,1,'s0b',2],[5,2,'s0bsub',3],[4,2,'s0bsub2',3]])
+    #    data=[[1,None,'root',1],[2,1,'sub',2],[3,2,'subsub',4],[4,1,'sub2',2],[5,None,'root2',1],[6,5,'r2sub',2]])
+         data=[[1,None,'r00t',1],[2,1,'s0b',2],[3,2,'s0bsub',3],[5,2,'s0bsub2',3],[6,None,'r00t2',1],[7,6,'r2s0b',2]])
     members, result = json_encrypt(members,bilateral['id2'],encrypt=['foo@localhost'],sign=True)
     #data, encrypted, signed, result = json_decrypt(members,bilateral['id1'])
     departments, result = json_encrypt(departments,bilateral['id2'],encrypt=['foo@localhost'],sign=True)
@@ -82,15 +84,19 @@ def test_member(request,accounts,invitations,bilateral,client,variant,settings):
         data=dict(members=members,departments=departments))
     assert response.status_code == 200
 
-    assert not NestedGroup.objects.filter(syncid=3).exists()
     root = NestedGroup.objects.get(syncid=1)
     assert root.name=='r00t' and root.is_root() and root.level==1
     sub = NestedGroup.objects.get(syncid=2)
     assert sub.name=='s0b' and sub.parent==root and sub.level==2
-    ssub = NestedGroup.objects.get(syncid=5)
+    ssub = NestedGroup.objects.get(syncid=3)
     assert ssub.name=='s0bsub' and ssub.parent==sub and ssub.level==3
-    ssub2 = NestedGroup.objects.get(syncid=4)
+    assert not NestedGroup.objects.filter(syncid=4).exists()
+    ssub2 = NestedGroup.objects.get(syncid=5)
     assert ssub2.name=='s0bsub2' and ssub2.parent==sub and ssub2.level==3
+    root2 = NestedGroup.objects.get(syncid=6)
+    assert root2.name=='r00t2' and root2.is_root() and root2.level==1
+    r2sub = NestedGroup.objects.get(syncid=7)
+    assert r2sub.name=='r2s0b' and r2sub.parent==root2 and r2sub.level==2
     indep = NestedGroup.objects.get(name='indep')
     assert indep.syncid is None and indep.level==1
 

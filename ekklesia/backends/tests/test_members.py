@@ -41,14 +41,14 @@ same results als independent
 
 """
 member,1.0
-uuid,email,status,verified,department,parent
+uuid,email,status,verified,departments,parent
 uid1,bar@localhost,member,n,sub,root
 uid2,fnord@localhost,eligible,y,subsub,sub
 uid3,verify@localhost,eligible,y,sub2,root
 uid4,other@localhost,member,y,subsub,sub
 
 member 1.0
-memberno,uuid,entitled,verified,email,department,parent,address
+memberno,uuid,entitled,verified,email,departments,parent,address
 101,uid1,1,1,user1@local,Local,City,"Street 1, City, State"
 102,uid2,1,0,user2@local,City,State,"Tiananmen, Dongcheng, Beijing, China, 100051"
 103,uid3,0,1,user3@local,State,,
@@ -80,6 +80,8 @@ subsub,sub,3
 sub,root,1
 sub2,root,1
 sub3,root,
+root2,,0
+r2sub,root2,1
 """
 deps_number = """department,1.0
 id,name,parent,depth
@@ -88,23 +90,34 @@ id,name,parent,depth
 3,sub,1,1
 4,sub2,1,1
 5,sub3,1,
+6,root2,,0
+7,r2sub,6,1
 """
 members_name = """member,1.0
-uuid,email,status,verified,department
+uuid,email,status,verified,departments
+uid1,bar@localhost,member,n,sub
+uid2,fnord@localhost,eligible,y,subsub
+uid3,verify@localhost,eligible,y,sub2;r2sub
+uid4,other@localhost,member,y,subsub
+"""
+# single hierarchy
+members_name_hier = """member,1.0
+uuid,email,status,verified,departments
 uid1,bar@localhost,member,n,sub
 uid2,fnord@localhost,eligible,y,subsub
 uid3,verify@localhost,eligible,y,sub2
 uid4,other@localhost,member,y,subsub
 """
+
 members_number = """member,1.0
-memberno,uuid,email,status,verified,department
+memberno,uuid,email,status,verified,departments
 1,uid1,bar@localhost,member,n,3
 2,uid2,fnord@localhost,eligible,y,2
-3,uid3,verify@localhost,eligible,y,4
+3,uid3,verify@localhost,eligible,y,4;7
 4,uid4,other@localhost,member,y,2
 """
 members_implict = """member,1.0
-uuid,email,status,verified,department,parent
+uuid,email,status,verified,departments,parent
 uid1,bar@localhost,member,n,sub,root
 uid2,fnord@localhost,eligible,y,subsub,sub
 uid3,verify@localhost,eligible,y,sub2,root
@@ -117,25 +130,31 @@ def gen_departments(db,spec='name'):
     sub2 = db.Department(name='sub2',parent=root,depth=1)
     sub3 = db.Department(name='sub3',parent=root,depth=1)
     subsub = db.Department(name='subsub',parent=sub,depth=2 if spec=='implicit' else 3)
-    if spec=='number': root.id, subsub.id, sub.id, sub2.id, sub3.id = 1,2,3,4,5
     deps = dict(root=root,sub=sub,sub2=sub2,subsub=subsub)
-    if spec!='implicit': deps['sub3'] = sub3
+    if spec=='implicit': return deps
+    root2 = db.Department(name='root2',parent=None,depth=0)
+    r2sub = db.Department(name='r2sub',parent=root2,depth=1)
+    deps.update(dict(sub3=sub3, root2=root2,r2sub=r2sub))
+    if spec=='number':
+        root.id, subsub.id, sub.id, sub2.id, sub3.id, root2.id, r2sub.id = range(1,8) #1,2,3,4,5,6,7
     return deps
 
-def gen_members(db,deps):
+def gen_members(db,deps,depspec='name'):
     m1 = db.Member(uuid='uid1',email=receiver,status=MStatusType.member,
-        verified=False,department=deps['sub'])
+        verified=False,departments=[deps['sub']])
     m2 = db.Member(uuid='uid2',email=third,status=MStatusType.eligible,
-        verified=True,department=deps['subsub'])
+        verified=True,departments=[deps['subsub']])
+    m3deps = [deps['sub2']]
+    if depspec!='implicit': m3deps.append(deps['r2sub'])
     m3 = db.Member(uuid='uid3',email='verify@localhost',status=MStatusType.eligible,
-        verified=True,department=deps['sub2'])
+        verified=True,departments=m3deps)
     m4 = db.Member(uuid='uid4',email='other@localhost',status=MStatusType.member,
-        verified=True,department=deps['subsub'])
+        verified=True,departments=[deps['subsub']])
     return (m1,m2,m3,m4)
 
 def check_objs(db,deps=None,members=None,spec='name'):
     if not deps: deps = gen_departments(db,spec)
-    if not members: members = gen_members(db,deps)
+    if not members: members = gen_members(db,deps,spec)
     session = db.session
     qdep = session.query(db.Department)
     qmem = session.query(db.Member)
@@ -147,7 +166,9 @@ def check_objs(db,deps=None,members=None,spec='name'):
     assert len(members) == qmem.count()
     for mem in members:
         tmem = qmem.filter_by(uuid=mem.uuid,email=mem.email,status=mem.status,verified=mem.verified).one()
-        assert mem.department.name == tmem.department.name
+        memdeps = [dep.name for dep in mem.departments]
+        tmemdeps = [dep.name for dep in tmem.departments]
+        assert set(memdeps) == set(tmemdeps)
 
 current_db = None # ugly workaround for pytest bug (finalizer not called immeditely)
 
@@ -157,7 +178,7 @@ def setup_db(dbtype=MyMemberDatabase,engine=None,depspec='name',reflect=True,**c
     if current_db: current_db.drop_db()
     config = dict(department_spec=depspec,check_member='register',
             export_emails=True, email_receiver=receiver, io_key=receiver,
-            member_import=('id','uuid','email','status','verified','department','registered'))
+            member_import=('id','uuid','email','status','verified','departments','registered'))
     db = dbtype().configure(config=config,gpgconfig=dict(sender=sender),**configs)
     db.set_logger('member','warning')
     log = logging.getLogger('sqlalchemy')
@@ -292,7 +313,7 @@ sub3,root,
 """
 
 members_dup = """member,1.0
-uuid,email,status,verified,department
+uuid,email,status,verified,departments
 uid1,bar@localhost,member,n,sub
 uid2,fnord@localhost,eligible,y,subsub
 uid3,verify@localhost,eligible,y,sub2
@@ -337,28 +358,30 @@ sub2,root
 
 def test_import_depths(empty_db):
     db = empty_db
-    memfile = StringIO(members_name)
+    memfile = StringIO(members_name_hier)
     depfile = StringIO(deps_depths)
     #for dep in db.session.query(db.Department): print dep
     db.import_members(memberfile=memfile,depfile=depfile)
     deps = gen_departments(db,'implicit')
-    members = gen_members(db,deps)
+    members = gen_members(db,deps,'implicit')
     check_objs(db,deps,members)
 
 members_export = """member,1.0
-uuid,email,status,registered,verified,department
+uuid,email,status,registered,verified,departments
 uid1,bar@localhost,member,,False,sub
 uid2,fnord@localhost,eligible,,True,subsub
-uid3,verify@localhost,eligible,,True,sub2
+uid3,verify@localhost,eligible,,True,sub2;r2sub
 uid4,other@localhost,member,,True,subsub
 """
 
 deps_export = """department,1.0
 id,name,parent,depth
 1,root,,0
+6,root2,,0
 3,sub,root,1
 4,sub2,root,1
 5,sub3,root,1
+7,r2sub,root2,1
 2,subsub,sub,3
 """
 
@@ -366,7 +389,8 @@ def test_export(member_db):
     memfile = StringIO()
     depfile = StringIO()
     member_db.export_members([memfile,depfile],allfields=True,format='csv')
-    assert memfile.getvalue()==members_export
+    members = memfile.getvalue().replace('r2sub;sub2','sub2;r2sub') # normalize order
+    assert members==members_export
     assert depfile.getvalue()==deps_export
 
 def test_export_inv(member_db):
@@ -382,10 +406,13 @@ uid4,other@localhost
 
 deps_dictname = {'format': 'department', 'version': [1, 0],
         'fields': ['id', 'name', 'parent', 'depth'],
-        'data': [[1, 'root', None, 0],
+        'data': [
+            [1, 'root', None, 0],
+            [6, 'root2', None, 0],
             [3, 'sub', 'root', 1],
             [4, 'sub2', 'root', 1],
             [5, 'sub3', 'root', 1],
+            [7, 'r2sub', 'root2', 1],
             [2, 'subsub', 'sub', 3]]
         }
 
@@ -394,13 +421,17 @@ def test_export_json(member_db):
     depfile = StringIO()
     member_db.export_members([memfile,depfile],allfields=True,format='json-file')
     members = json.loads(memfile.getvalue())
+    for m in members['data']:
+        if m[0]=='uid3':
+            if m[5]==['r2sub','sub2']: m[5] = ['sub2','r2sub'] # normalize order
+            break
     deps = json.loads(depfile.getvalue())
     assert members == {'format': 'member', 'version': [1, 0],
-        'fields': ['uuid', 'email', 'status', 'registered', 'verified', 'department'],
-        'data': [['uid1', 'bar@localhost', 'member', None, False, 'sub'],
-            ['uid2', 'fnord@localhost', 'eligible', None, True, 'subsub'],
-            ['uid3', 'verify@localhost', 'eligible', None, True, 'sub2'],
-            ['uid4', 'other@localhost', 'member', None, True, 'subsub']]
+        'fields': ['uuid', 'email', 'status', 'registered', 'verified', 'departments'],
+        'data': [['uid1', 'bar@localhost', 'member', None, False, ['sub']],
+            ['uid2', 'fnord@localhost', 'eligible', None, True, ['subsub']],
+            ['uid3', 'verify@localhost', 'eligible', None, True, ['sub2','r2sub']],
+            ['uid4', 'other@localhost', 'member', None, True, ['subsub']]]
     }
     assert deps == deps_dictname
 
@@ -413,7 +444,8 @@ def test_export_crypt(member_db,bilateral):
     id2 = bilateral['id2']
     result = id2.decrypt_str(memfile.getvalue())
     assert result.ok and result.valid
-    members = str(result)
+    members = str(result).replace('r2sub;sub2','sub2;r2sub') # normalize order
+
     assert members==members_export
     result = id2.decrypt_str(depfile.getvalue())
     assert result.ok and result.valid
@@ -422,28 +454,31 @@ def test_export_crypt(member_db,bilateral):
 
 deps_dict = {'format': 'department', 'version': [1, 0],
         'fields': ['id', 'name', 'parent', 'depth'],
-        'data': [[1, 'root', None, 0],
+        'data': [
+            [1, 'root', None, 0],
+            [6, 'root2', None, 0],
             [3, 'sub', 1, 1],
             [4, 'sub2', 1, 1],
             [5, 'sub3', 1, 1],
+            [7, 'r2sub', 6, 1],
             [2, 'subsub', 3, 3]]
         }
 
 members_down = {'format': 'member', 'version': [1, 0], 'fields': ['uuid', 'register'], 
         'data': [['uid1', 'invalid'],['uid2', 'password'],['uid3', None],['uidx',None]]}
 members_up = {'format': 'member', 'version': [1, 0],
-        'fields': ['uuid', 'status', 'verified', 'department','register'], 
-        'data': [['uid1', 'member', False, 3, False],
-            ['uid2', 'eligible', True, 2, True],
-            ['uid3', 'eligible', True, 4, None],
-            ['uidx', 'deleted', None, None, None] ],
+        'fields': ['uuid', 'status', 'verified', 'departments','register'], 
+        'data': [['uid1', 'member', False, [3], False],
+            ['uid2', 'eligible', True, [2], True],
+            ['uid3', 'eligible', True, [4,7], None],
+            ['uidx', 'deleted', None, [], None] ],
     }
 members_upname = {'format': 'member', 'version': [1, 0],
-        'fields': ['uuid', 'status', 'verified', 'department','register'], 
-        'data': [['uid1', 'member', False, 'sub', False],
-            ['uid2', 'eligible', True, 'subsub', True],
-            ['uid3', 'eligible', True, 'sub2', None],
-            ['uidx', 'deleted', None, None, None] ],
+        'fields': ['uuid', 'status', 'verified', 'departments','register'], 
+        'data': [['uid1', 'member', False, ['sub'], False],
+            ['uid2', 'eligible', True, ['subsub'], True],
+            ['uid3', 'eligible', True, ['sub2','r2sub'], None],
+            ['uidx', 'deleted', None, [], None] ],
     }
 
 emails_sync = """member,1.0
@@ -464,12 +499,16 @@ def test_sync(member_db):
     db.sync_members(input=input,output=[memfile,depfile,emails],invitations=inv,format='csv')
 
     q = db.session.query(db.Member)
-    assert q.get('uid2').registered and not q.get('uid1').registered
+    assert q.filter_by(uuid='uid2').one().registered and not q.filter_by(uuid='uid1').one().registered
     assert inv.getvalue()==invitations_sync
     assert emails.getvalue()==emails_sync
     members = json.loads(memfile.getvalue())
+    for m in members['data']:
+        if m[0]=='uid3':
+            if m[3]==['r2sub','sub2']: m[3] = ['sub2','r2sub'] # normalize order
+            break
     deps = json.loads(depfile.getvalue())
-    assert members == members_up
+    assert members == members_upname
     assert deps == deps_dict
 
 def test_push(member_db):
@@ -489,8 +528,8 @@ def test_push(member_db):
     members = json.loads(memfile.getvalue())
     assert members
     q = db.session.query(db.Member)
-    assert q.get('uid2').registered and not q.get('uid1').registered
-    up = copy.deepcopy(members_up)
+    assert q.filter_by(uuid='uid2').one().registered and not q.filter_by(uuid='uid1').one().registered
+    up = copy.deepcopy(members_upname)
     up['data'] = up['data'][:2]
     assert members == up
     assert not db.process_update(msg,input,output)
@@ -519,11 +558,15 @@ def test_sync_crypto(bilateral,crypto_db):
     db.gpg = bilateral['id1']
     db.sync_members(input=input,output=[memfile,depfile,emails],format='csv')
     q = db.session.query(db.Member)
-    assert q.get('uid2').registered and not q.get('uid1').registered
+    assert q.filter_by(uuid='uid2').one().registered and not q.filter_by(uuid='uid1').one().registered
 
     members = memfile.getvalue()
     members, encrypted, signed, result = json_decrypt(json.loads(members),id2)
     assert result.ok and result.valid
+    for m in members['data']:
+        if m[0]=='uid3':
+            if m[3]==[7,4]: m[3] = [4,7] # normalize order
+            break
     assert members==members_up
 
     deps = depfile.getvalue()
