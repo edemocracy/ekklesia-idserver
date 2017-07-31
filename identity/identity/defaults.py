@@ -451,6 +451,8 @@ def defaults(production=False,admin=False,site=0):
 		REGISTRATION_OPEN = True
 		REGISTRATION_CLOSED_URL = '/' # url if registration is closed
 
+		GUEST_MANDATORY_FIELDS = False # whether name and address are mandatory for guests
+
 		# home of id keyrings or tuple of keyrings file of id public/secret keys
 		# default $HOME/.gnupg
 		EMAIL_GPG_IMPORT_HOME = None

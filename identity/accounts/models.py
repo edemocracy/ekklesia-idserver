@@ -264,14 +264,13 @@ class Verifier(Account):
     expires = models.DateTimeField(_('date of expiration'), blank=True, null=True)
 
 class Guest(Account):
-    # full name and postal code are mandatory
-    first_name = models.CharField(_('first name'), max_length=30)
+    first_name = models.CharField(_('first name'), max_length=30, blank=True, null=True)
     last_name = models.CharField(_('last name'), max_length=30)
-    address = models.CharField(_('street/no or POBox'),max_length=50)
-    address_prefix = models.CharField(max_length=50,blank=True)
-    city = models.CharField(max_length=30)
-    postal_code = models.PositiveIntegerField(_('postal code'))
-    country = CountryField(_("Country"),default='DE')
+    address = models.CharField(_('street/no or POBox'),max_length=50, blank=True, null=True)
+    address_prefix = models.CharField(max_length=50,blank=True,null=True)
+    city = models.CharField(max_length=30, blank=True, null=True)
+    postal_code = models.PositiveIntegerField(_('postal code'), null=True)
+    country = CountryField(_("Country"),default='DE',null=True)
     #phone = PhoneNumberField(_("Phone number"),blank=True)
 
     def __unicode__(self):

@@ -410,13 +410,15 @@ class MemberRegistrationForm(RegistrationForm):
         if not getattr(settings, 'TWO_FACTOR_SIGNUP', False):
             del self.fields['secret']
 
+guest_req = settings.GUEST_MANDATORY_FIELDS
+
 class GuestRegistrationForm(RegistrationForm):
-    first_name = forms.CharField(label=_("First name"),max_length=30)
-    last_name = forms.CharField(label=_("Last name"),max_length=30)
-    address = forms.CharField(label=_("Street/no or POBox"),max_length=50)
+    first_name = forms.CharField(label=_("First name"),max_length=30,required=guest_req)
+    last_name = forms.CharField(label=_("Last name"),max_length=30,required=guest_req)
+    address = forms.CharField(label=_("Street/no or POBox"),max_length=50,required=guest_req)
     address_prefix = forms.CharField(label=_("Address prefix"),max_length=50)
-    city = forms.CharField(label=_("City"),max_length=30)
-    postal_code = forms.RegexField(regex=r'^\d{5}$', max_length=5, label=_("Postal code"),
+    city = forms.CharField(label=_("City"),max_length=30,required=guest_req)
+    postal_code = forms.RegexField(regex=r'^\d{5}$', max_length=5, label=_("Postal code"), required=guest_req,
                                 error_messages={'invalid': _("This value may contain only digits.")})
     country = CountryField(_("Country"),default='DE')
     #phone = PhoneNumberField(_("Phone number"))
