@@ -21,7 +21,7 @@ django-treebeard>=3.0
 django-extensions>=1.6.1
 django-configurations>=1.0
 Pillow>=3.1
-pyjade>=3.0
+pyjade==3.1
 https://github.com/lamby/django-agpl/archive/master.zip
 django-cors-headers
 django-crispy-forms

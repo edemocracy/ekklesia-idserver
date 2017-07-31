@@ -14,17 +14,24 @@ block content
     p: a(href="{% url 'accounts:profile' %}"): -trans 'show profile'
     p: a(href="{% url 'accounts:profile_edit' %}"): -trans 'edit profile'
 
-    p: -trans 'Username:' 
+    p
+        -trans 'Username:'
         {{ username }}
-    p: -trans 'Public key registered:' 
+    p
+        -trans 'Public key registered:'
         {{ key_registered|yesno }}
-    p: -trans 'Status:' 
-         {{ status }}
-    p: -trans 'Verified:' 
+    p
+        -trans 'Status:'
+        {{ status }}
+    p
+        -trans 'Verified:'
         {{ status|yesno }}
-    p: -trans 'Eligible:' 
+    p
+        -trans 'Eligible:'
         {{ eligible|yesno }}
-    p: -trans 'Two-factor authenticiation:' 
+    p
+        -trans 'Two-factor authenticiation:'
         {{ two_factor_auth|yesno }}
-    p: -trans 'Notify on login:' 
-         {{ notify_login|yesno }}
+    p
+        -trans 'Notify on login:'
+        {{ notify_login|yesno }}

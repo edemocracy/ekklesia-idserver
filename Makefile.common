@@ -22,7 +22,7 @@ basicclean:
 	@-rm -rvf $(JADE_OUT) $(EXTRA_CLEAN)
 
 %.html: %.jade
-	pyjade -e html $< | sed "s/|__pyjade_iter:1//" > $@
+	pyjade -c django -e html $< | sed "s/|__pyjade_iter:1//" > $@
 
 test-local:
 	@test -z "$(TEST_DEPS)" || $(MAKE) $(TEST_DEPS)

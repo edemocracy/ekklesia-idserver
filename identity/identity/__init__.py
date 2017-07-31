@@ -6,7 +6,10 @@ import os, configurations
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'identity.settings')
 os.environ.setdefault('DJANGO_CONFIGURATION', 'Development')
 
-configurations.setup()
+try: configurations.setup()
+except:
+    import traceback
+    traceback.print_exc()
 
 if settings.USE_CELERY:
     # This will make sure the app is always imported when
