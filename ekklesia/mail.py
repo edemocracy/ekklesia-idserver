@@ -131,13 +131,14 @@ def gpg_key(config):
     if not sender: sender=('','')
     return {'default_key':sender[0],'passphrase':sender[1]}
 
-smtp_defaults = dict(host='localhost', port=587, user=None, password=None, certfile=None, keyfile=None, ca_certs=None)
+smtp_defaults = dict(host='localhost', port=587, user=None, password=None, tls=True, certfile=None, keyfile=None, ca_certs=None)
 smtp_spec="""
 [smtp]
 host = string(default='localhost')
 port = integer(default=587)
 user = string
 password = string
+tls = boolean(default=True)
 certfile = string
 keyfile = string
 ca_certs = string
@@ -148,7 +149,7 @@ def smtp_init(config):
     cfg.update(config)
     return SMTPOutput(host=cfg['host'],port=cfg['port'],
         user=cfg['user'].encode('ascii'),password=cfg['password'].encode('ascii'),
-        certfile=cfg['certfile'],keyfile=cfg['keyfile'],ca_certs=cfg['ca_certs'])
+        tls=cfg['tls'],certfile=cfg['certfile'],keyfile=cfg['keyfile'],ca_certs=cfg['ca_certs'])
 
 imap_defaults = dict(host='localhost', port=993, user=None, password=None, cram_md5=True,
         certfile=None, keyfile=None, ca_certs=None)
@@ -260,16 +261,22 @@ class IMAPSource(MessageSource):
 class SMTPOutput(MessageOutput):
 
     def __init__(self, host="localhost",port=587,user="",password="",
-        keyfile=None,certfile=None,ca_certs=None,cert_reqs=None):
-        from kryptomime.transport import SMTP_TLS
-        self.smtp = SMTP_TLS(host,port)
-        self.smtp.starttls(keyfile=keyfile,certfile=certfile,cert_reqs=cert_reqs,ca_certs=ca_certs)
+        tls=True,keyfile=None,certfile=None,ca_certs=None,cert_reqs=None):
         self.user = user
         self.password = password
+        if tls:
+            from kryptomime.transport import SMTP_TLS
+            self.smtp = SMTP_TLS(host,port)
+            self.smtp.starttls(keyfile=keyfile,certfile=certfile,cert_reqs=cert_reqs,ca_certs=ca_certs)
+            self.smtp.ehlo()
+        else:
+            from smtplib import SMTP
+            self.smtp = SMTP(host,port)
 
     def open(self):
-        self.smtp.ehlo()
-        self.smtp.login(self.user, self.password)
+        if not self.user: return True
+        try: self.smtp.login(self.user, self.password)
+        except: return False
         return True
 
     def close(self):

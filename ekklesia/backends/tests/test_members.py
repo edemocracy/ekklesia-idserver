@@ -464,7 +464,7 @@ deps_dict = {'format': 'department', 'version': [1, 0],
             [2, 'subsub', 3, 3]]
         }
 
-members_down = {'format': 'member', 'version': [1, 0], 'fields': ['uuid', 'register'], 
+members_down = {'format': 'member', 'version': [1, 0], 'fields': ['uuid', 'register'],
         'data': [['uid1', 'invalid'],['uid2', 'password'],['uid3', None],['uidx',None]]}
 members_up = {'format': 'member', 'version': [1, 0],
         'fields': ['uuid', 'status', 'verified', 'departments','register'], 
